@@ -61,7 +61,7 @@ jobs:
         env:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
         run: |
-          AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64)
+          AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
           RESPONSE=$(curl -sf \
             -H "Authorization: Basic $AUTH" \
             -H "Accept: application/json" \
@@ -125,7 +125,7 @@ jobs:
         env:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
         run: |
-          AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64)
+          AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
           curl -sf -X POST \
             -H "Authorization: Basic $AUTH" \
             -H "Content-Type: application/json" \
@@ -140,7 +140,7 @@ jobs:
           BRANCH: ${{ steps.branch.outputs.BRANCH }}
           GH_ISSUE_URL: ${{ steps.gh_issue.outputs.ISSUE_URL }}
         run: |
-          AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64)
+          AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
           curl -sf -X POST \
             -H "Authorization: Basic $AUTH" \
             -H "Content-Type: application/json" \
