@@ -10,6 +10,12 @@ node_modules/
 /playwright/.cache/
 /playwright/.auth/
 
+# SauceDemo app artifacts
+/saucedemo/test-results/
+!/saucedemo/test-results/*.md
+/saucedemo/playwright-report/
+/saucedemo/.auth/
+
 # OrangeHRM artifacts
 /OrangeHRM/playwright-report/
 /OrangeHRM/test-results/
