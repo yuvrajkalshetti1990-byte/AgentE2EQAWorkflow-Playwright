@@ -1,0 +1,4 @@
+# These doc files live on dev only — never merge them into main.
+# The 'ours' merge driver keeps main's version (absent) when merging dev -> main.
+SETUP-GUIDE.md        merge=ours
+FOLDER-STRUCTURE.md   merge=ours
