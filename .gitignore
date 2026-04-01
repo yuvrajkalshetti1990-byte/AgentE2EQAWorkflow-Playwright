@@ -1,12 +1,20 @@
 
 # Playwright
 node_modules/
+
+# SauceDemo artifacts
 /test-results/
 !/test-results/*.md
 /playwright-report/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# OrangeHRM artifacts
+/OrangeHRM/playwright-report/
+/OrangeHRM/test-results/
+!/OrangeHRM/test-results/*.md
+/OrangeHRM/.auth/
 
 # Secrets — never commit credentials
 .vscode/mcp.json

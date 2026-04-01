@@ -1,0 +1,205 @@
+name: Jira Ready for QA — Auto-generate OrangeHRM Playwright Tests
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TRIGGERS
+#
+# 1. Automated: Jira fires a webhook → repository_dispatch event
+#    Jira Automation Rule config:
+#      - Trigger: Issue transitioned → To status: "Ready for QA"
+#      - Action:  Send web request (POST)
+#        URL:     https://api.github.com/repos/yuvrajkalshetti1990-byte/AgentE2EQAWorkflow-Playwright/dispatches
+#        Headers: Authorization: Bearer <GITHUB_PAT>  (store as Jira secret)
+#                 Content-Type: application/json
+#        Body:    { "event_type": "jira-ready-for-qa", "client_payload": { "issue_key": "{{issue.key}}" } }
+#
+# 2. Manual: workflow_dispatch (for testing the pipeline without Jira)
+# ─────────────────────────────────────────────────────────────────────────────
+on:
+  repository_dispatch:
+    types: [jira-ready-for-qa]
+
+  workflow_dispatch:
+    inputs:
+      issue_key:
+        description: 'Jira Issue Key (e.g. SCRUM-8)'
+        required: true
+        type: string
+
+env:
+  ISSUE_KEY: ${{ github.event.client_payload.issue_key || inputs.issue_key }}
+  ATLASSIAN_CLOUD_ID: c2269322-6897-4ede-8e92-04b6edd6edf6
+  ATLASSIAN_BASE_URL: https://yuvrajkalshetti1990.atlassian.net
+
+jobs:
+  generate-tests:
+    name: Auto-generate tests for ${{ github.event.client_payload.issue_key || inputs.issue_key }}
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 2. Node + dependencies ───────────────────────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      # ── 3. Fetch Jira story details ──────────────────────────────────────────
+      - name: Fetch Jira story details
+        id: jira
+        env:
+          ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
+        run: |
+          RESPONSE=$(curl -sf \
+            -H "Authorization: Bearer $ATLASSIAN_TOKEN" \
+            -H "Accept: application/json" \
+            "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY?fields=summary,description,status")
+
+          SUMMARY=$(echo "$RESPONSE" | jq -r '.fields.summary')
+          STATUS=$(echo "$RESPONSE" | jq -r '.fields.status.name')
+
+          echo "ISSUE_SUMMARY=$SUMMARY" >> "$GITHUB_OUTPUT"
+          echo "ISSUE_STATUS=$STATUS"   >> "$GITHUB_OUTPUT"
+
+          echo "📋 Jira Issue: $ISSUE_KEY"
+          echo "📝 Summary:    $SUMMARY"
+          echo "📌 Status:     $STATUS"
+
+      # ── 4. Create working branch ─────────────────────────────────────────────
+      - name: Create feature branch
+        id: branch
+        run: |
+          BRANCH="auto/test-$(echo "$ISSUE_KEY" | tr '[:upper:]' '[:lower:]')"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Only create if it doesn't already exist
+          if git ls-remote --exit-code --heads origin "$BRANCH"; then
+            echo "Branch $BRANCH already exists — checking out"
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+          else
+            git checkout -b "$BRANCH"
+          fi
+
+          echo "BRANCH=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "🌿 Branch: $BRANCH"
+
+      # ── 5. Create GitHub Issue for Copilot to work on ────────────────────────
+      - name: Create GitHub Issue for Copilot
+        id: gh_issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ISSUE_URL=$(gh issue create \
+            --title "[$ISSUE_KEY] Automate: ${{ steps.jira.outputs.ISSUE_SUMMARY }}" \
+            --label "automated-qa" \
+            --body "## Automation Task
+
+**Jira Story:** [$ISSUE_KEY]($ATLASSIAN_BASE_URL/browse/$ISSUE_KEY)
+**Target Branch:** \`${{ steps.branch.outputs.BRANCH }}\`
+
+---
+
+## Instructions for Automation Agent
+
+Please generate Playwright TypeScript end-to-end test scripts for the acceptance criteria in the linked Jira story above.
+
+### Conventions to follow:
+- Read the full Description, Acceptance Criteria, Automation Scope, and Test Data Strategy from the Jira story.
+- Place test files under \`OrangeHRM/tests/orangehrm-e2e/\` using this subfolder convention:
+  - Auth stories → \`auth/\`
+  - PIM/Employee stories → \`pim/\`
+  - Leave stories → \`leave/\`
+  - Cross-module stories → \`cross-module/\`
+  - Logout/Session stories → \`session/\`
+- Use the seed/auth setup from \`OrangeHRM/tests/seed.spec.ts\` — tests must NOT re-login; reuse \`storageState\`.
+- Use config from \`orangehrm.playwright.config.ts\`.
+- Selectors: prefer \`[data-test]\`, ARIA roles (\`getByRole\`), or \`[name]\` attributes. Avoid XPath/CSS class selectors.
+- Each AC (e.g. AC-1, AC-2 ...) must have its own \`test()\` block with a matching name.
+- Follow the file naming pattern: \`tc-{lowercase-story-id}-{short-description}.spec.ts\`
+- Credentials must come from environment variables (\`process.env.ORANGEHRM_USERNAME\` / \`ORANGEHRM_PASSWORD\`).
+- Dynamic test data must use timestamp suffixes to avoid conflicts.
+- Include \`afterAll\` teardown where test data is created.
+
+### Application:
+- URL: https://opensource-demo.orangehrmlive.com/web/index.php/auth/login
+- Admin credentials: env vars \`ORANGEHRM_USERNAME\` / \`ORANGEHRM_PASSWORD\`
+
+### Reference:
+- Existing tests: \`saucedemo/tests/saucedemo-checkout/\` (follow same pattern)
+- Playwright config: \`orangehrm.playwright.config.ts\`
+
+Commit all generated test files to branch **\`${{ steps.branch.outputs.BRANCH }}\`** and a PR will be auto-raised.
+")
+          echo "$ISSUE_URL"
+          ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -oP '(?<=/issues/)\d+')
+          echo "ISSUE_NUMBER=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "ISSUE_URL=$ISSUE_URL"       >> "$GITHUB_OUTPUT"
+
+      # ── 6. Assign GitHub Copilot to the issue ────────────────────────────────
+      - name: Assign Copilot to GitHub Issue
+        env:
+          GH_TOKEN: ${{ secrets.COPILOT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit ${{ steps.gh_issue.outputs.ISSUE_NUMBER }} \
+            --add-assignee "Copilot" 2>/dev/null || true
+          echo "✅ Copilot assigned to issue #${{ steps.gh_issue.outputs.ISSUE_NUMBER }}"
+
+      # ── 7. Transition Jira issue → In QA ─────────────────────────────────────
+      - name: Transition Jira issue to In QA
+        env:
+          ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer $ATLASSIAN_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY/transitions" \
+            -d '{"transition": {"id": "41"}}'
+          echo "✅ Jira status → In QA"
+
+      # ── 8. Comment on Jira issue with traceability link ──────────────────────
+      - name: Comment on Jira issue
+        env:
+          ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ steps.branch.outputs.BRANCH }}
+          GH_ISSUE_URL: ${{ steps.gh_issue.outputs.ISSUE_URL }}
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer $ATLASSIAN_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY/comment" \
+            -d "{
+              \"body\": {
+                \"version\": 1,
+                \"type\": \"doc\",
+                \"content\": [{
+                  \"type\": \"paragraph\",
+                  \"content\": [
+                    {\"type\": \"text\", \"text\": \"🤖 Automation pipeline triggered. GitHub Copilot is generating Playwright tests.\n\n\"},
+                    {\"type\": \"text\", \"text\": \"• Branch: $BRANCH\n\"},
+                    {\"type\": \"text\", \"text\": \"• Repo: $REPO\n\"},
+                    {\"type\": \"text\", \"text\": \"• GitHub Issue (Copilot task): $GH_ISSUE_URL\n\n\"},
+                    {\"type\": \"text\", \"text\": \"A Pull Request will be raised for QA review once tests are generated. Status has been moved to In QA.\"}
+                  ]
+                }]
+              }
+            }"
+          echo "✅ Jira comment posted"
