@@ -16,7 +16,7 @@ name: Jira Ready for QA — Auto-generate OrangeHRM Playwright Tests
 # ─────────────────────────────────────────────────────────────────────────────
 on:
   repository_dispatch:
-    types: [jira-ready-for-qa]
+    types: [jira-ready-for-qa, ready-for-qa, issue_transitioned, jira_ready_for_qa]
 
   workflow_dispatch:
     inputs:
