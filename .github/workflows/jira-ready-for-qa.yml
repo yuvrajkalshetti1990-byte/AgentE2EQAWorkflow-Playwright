@@ -98,32 +98,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          BRANCH="${{ steps.branch.outputs.BRANCH }}"
+          JIRA_SUMMARY="${{ steps.jira.outputs.ISSUE_SUMMARY }}"
+          printf '## Automation Task\n\n**Jira Story:** [%s](%s/browse/%s)\n**Branch:** `%s`\n\n## Agent Instructions\n\nGenerate Playwright TypeScript E2E tests for all acceptance criteria in the Jira story.\n\n### Conventions\n- Place files under `OrangeHRM/tests/orangehrm-e2e/` (subfolders: auth/ pim/ leave/ session/)\n- Reuse storageState from `seed.spec.ts` (do NOT re-login)\n- Config: `OrangeHRM/orangehrm.playwright.config.ts`\n- Selectors: prefer [data-test], ARIA roles, [name] attributes\n- One `test()` per acceptance criterion\n- Naming: `tc-{story-id}-{description}.spec.ts`\n- Credentials from env: ORANGEHRM_USERNAME / ORANGEHRM_PASSWORD\n- Use timestamp suffixes for dynamic test data\n- Add afterAll teardown when test data is created\n\nCommit all test files to branch `%s`\n' \
+            "$ISSUE_KEY" "$ATLASSIAN_BASE_URL" "$ISSUE_KEY" "$BRANCH" "$BRANCH" \
+            > /tmp/issue_body.md
           ISSUE_URL=$(gh issue create \
-            --title "[$ISSUE_KEY] Automate: ${{ steps.jira.outputs.ISSUE_SUMMARY }}" \
+            --title "[$ISSUE_KEY] Automate: $JIRA_SUMMARY" \
             --label "automated-qa" \
-            --body "## Automation Task
-
-**Jira Story:** [$ISSUE_KEY]($ATLASSIAN_BASE_URL/browse/$ISSUE_KEY)
-**Target Branch:** \`${{ steps.branch.outputs.BRANCH }}\`
-
-## Instructions for Automation Agent
-
-Please generate Playwright TypeScript end-to-end test scripts for the acceptance
-criteria in the linked Jira story.
-
-### Conventions:
-- Place test files under \`OrangeHRM/tests/orangehrm-e2e/\`
-- Reuse storageState from seed.spec.ts - tests must NOT re-login
-- Use config from \`OrangeHRM/orangehrm.playwright.config.ts\`
-- Prefer selectors: [data-test], ARIA roles, or [name] attributes
-- Each AC must have its own test() block
-- File naming: \`tc-{lowercase-story-id}-{short-description}.spec.ts\`
-- Credentials from env vars: ORANGEHRM_USERNAME / ORANGEHRM_PASSWORD
-- Dynamic test data must use timestamp suffixes
-- Include afterAll teardown where test data is created
-
-Commit all generated test files to branch **\`${{ steps.branch.outputs.BRANCH }}\`**")
-
+            --body-file /tmp/issue_body.md)
           echo "$ISSUE_URL"
           ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -oP '(?<=/issues/)\d+')
           echo "ISSUE_NUMBER=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
