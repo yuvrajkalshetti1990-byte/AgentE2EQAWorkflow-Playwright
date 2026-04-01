@@ -34,6 +34,8 @@ jobs:
   generate-tests:
     name: Auto-generate tests for ${{ github.event.client_payload.issue_key || inputs.issue_key }}
     runs-on: ubuntu-latest
+    # Only run when triggered by Jira webhook or manual dispatch — skip push events
+    if: github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch'
 
     permissions:
       contents: write
