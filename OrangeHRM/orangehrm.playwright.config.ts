@@ -1,16 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
 import path from 'path';
 
-const AUTH_FILE = path.resolve(__dirname, 'OrangeHRM/.auth/admin.json');
+const AUTH_FILE = path.resolve(__dirname, '.auth/admin.json');
 
 export default defineConfig({
-  testDir: './OrangeHRM/tests',
+  testDir: './tests',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: [
-    ['html', { outputFolder: 'OrangeHRM/playwright-report' }],
+    ['html', { outputFolder: 'playwright-report' }],
     ['list'],
   ],
   use: {
