@@ -13,15 +13,16 @@ application into the pipeline.
 3. [Prerequisites](#3-prerequisites)
 4. [Repository Structure](#4-repository-structure)
 5. [Step 1 — Clone and Install](#5-step-1--clone-and-install)
-6. [Step 2 — GitHub Secrets](#6-step-2--github-secrets)
-7. [Step 3 — Jira Setup](#7-step-3--jira-setup)
-8. [Step 4 — Jira Automation Rule](#8-step-4--jira-automation-rule)
-9. [Step 5 — MCP Tools (VS Code)](#9-step-5--mcp-tools-vs-code)
-10. [Running Tests Locally](#10-running-tests-locally)
-11. [Adding a New Application](#11-adding-a-new-application)
-12. [How the Heal Cycle Works](#12-how-the-heal-cycle-works)
-13. [Known Limitations](#13-known-limitations)
-14. [Quick Reference — Key Values](#14-quick-reference--key-values)
+6. [Step 2 — GitHub Repository Settings](#6-step-2--github-repository-settings)
+7. [Step 3 — GitHub Secrets](#7-step-3--github-secrets)
+8. [Step 4 — Jira Project Setup](#8-step-4--jira-project-setup)
+9. [Step 5 — Jira Automation Rule](#9-step-5--jira-automation-rule)
+10. [Step 6 — MCP Servers (VS Code)](#10-step-6--mcp-servers-vs-code)
+11. [Running Tests Locally](#11-running-tests-locally)
+12. [Adding a New Application](#12-adding-a-new-application)
+13. [How the Heal Cycle Works](#13-how-the-heal-cycle-works)
+14. [Known Limitations](#14-known-limitations)
+15. [Quick Reference — Key Values](#15-quick-reference--key-values)
 
 ---
 
@@ -151,7 +152,56 @@ npx playwright install --with-deps
 
 ---
 
-## 6. Step 2 — GitHub Secrets
+## 6. Step 2 — GitHub Repository Settings
+
+Before adding secrets, configure the following settings on your GitHub repo.
+
+### 6.1 Enable GitHub Actions
+
+1. Go to your repo → **Settings** → **Actions** → **General**
+2. Under **Actions permissions** select **Allow all actions and reusable workflows**
+3. Under **Workflow permissions** select **Read and write permissions**
+4. Check **Allow GitHub Actions to create and approve pull requests**
+5. Click **Save**
+
+> Without read/write permissions the `jira-ready-for-qa.yml` workflow cannot
+> create branches, issues, or write back to the repo.
+
+### 6.2 Create the `automated-qa` issue label
+
+The pipeline creates GitHub issues tagged with this label.
+
+1. Go to your repo → **Issues** → **Labels** → **New label**
+2. Name: `automated-qa`
+3. Color: `#0075ca`
+4. Description: `Automated QA test generation`
+5. Click **Create label**
+
+> The workflow also auto-creates this label via `gh label create ... || true`
+> so this step is optional but useful for filtering issues.
+
+### 6.3 Create a Classic Personal Access Token (PAT)
+
+This token is used in TWO places: the Jira automation rule AND `.vscode/mcp.json`.
+
+1. Go to https://github.com/settings/tokens
+2. Click **Generate new token (classic)**
+3. Name: `AgentE2EQAWorkflow`
+4. Expiration: 90 days (or No expiration for demo use)
+5. Select scopes:
+   - `repo` (full control of private repositories)
+   - `workflow` (update GitHub Actions workflows)
+   - `admin:repo_hook` (for webhook creation if needed)
+6. Click **Generate token** and **copy it immediately** — you cannot see it again
+
+> **Critical:** Use a **Classic PAT**, not a Fine-grained PAT.
+> Fine-grained PATs cannot trigger `repository_dispatch` events.
+> This was a real blocker we hit — the Jira webhook would return 204 but
+> GitHub Actions would never fire.
+
+---
+
+## 7. Step 3 — GitHub Secrets
 
 Go to your GitHub repo → **Settings** → **Secrets and variables** → **Actions**
 → **New repository secret**.
@@ -170,15 +220,38 @@ Add these three secrets:
 
 ---
 
-## 7. Step 3 — Jira Setup
+## 8. Step 4 — Jira Project Setup
 
-### 7.1 Create a Jira project
+### 8.1 Create a Jira project
 
 1. Go to https://your-domain.atlassian.net
 2. Create a **Scrum** project — key `SCRUM`
 3. Add custom statuses: `Ready for QA`, `In QA` (under Project Settings → Statuses)
 
-### 7.2 Create user stories
+### 8.2 Add custom workflow statuses
+
+1. Go to **Project Settings** → **Workflows** → click the active workflow → **Edit**
+2. Add two new statuses:
+   - Status name: `Ready for QA` — Category: **In Progress**
+   - Status name: `In QA` — Category: **In Progress**
+3. Draw transitions to/from these statuses (e.g. `In Progress` → `Ready for QA` → `In QA` → `Done`)
+4. **Publish** the workflow
+
+> The exact transition IDs are needed for the GitHub Actions workflow.
+> Get them with this command after creating your statuses:
+
+```bash
+curl -s \
+  -H "Authorization: Basic $(echo -n 'your-email@example.com:YOUR_ATLASSIAN_TOKEN' | base64)" \
+  -H "Accept: application/json" \
+  "https://api.atlassian.com/ex/jira/YOUR_CLOUD_ID/rest/api/3/issue/SCRUM-1/transitions" \
+  | python3 -m json.tool
+```
+
+Look for the `id` field next to `"name": "In QA"` — update this value in
+`.github/workflows/jira-ready-for-qa.yml` under `"transition": {"id": "41"}`.
+
+### 8.3 Create user stories
 
 Stories should follow this template (this is what powers test generation):
 
@@ -201,36 +274,24 @@ As a QA Automation Engineer, I need...
 Static/dynamic data approach...
 ```
 
-### 7.3 Get your Jira Cloud ID
+### 8.4 Get your Jira Cloud ID
 
 ```bash
 curl -s \
-  -u "your-email@example.com:YOUR_ATLASSIAN_TOKEN" \
+  -H "Authorization: Basic $(echo -n 'your-email@example.com:YOUR_ATLASSIAN_TOKEN' | base64)" \
   "https://api.atlassian.com/oauth/token/accessible-resources" \
   | python3 -m json.tool
 ```
 
 Copy the `id` field — this is your `ATLASSIAN_CLOUD_ID`.
 
-### 7.4 Get transition IDs
-
-```bash
-curl -s \
-  -H "Authorization: Basic $(echo -n 'email:token' | base64)" \
-  "https://api.atlassian.com/ex/jira/YOUR_CLOUD_ID/rest/api/3/issue/SCRUM-1/transitions" \
-  | python3 -m json.tool
-```
-
-Note the `id` for each status — you need the "In QA" transition ID for the
-workflow (currently `41` in this project).
-
 ---
 
-## 8. Step 4 — Jira Automation Rule
+## 9. Step 5 — Jira Automation Rule
 
 This is the bridge that fires GitHub when a story moves to "Ready for QA".
 
-### 8.1 Create the rule
+### 9.1 Create the rule
 
 1. Go to your Jira project → **Project Settings** → **Automation**
 2. Click **Create rule**
@@ -265,22 +326,44 @@ This is the bridge that fires GitHub when a story moves to "Ready for QA".
 > **Critical:** Use a **Classic** GitHub PAT, not fine-grained.
 > Fine-grained PATs cannot trigger `repository_dispatch`.
 
-### 8.2 Test the rule
+### 9.2 Verify the rule fired
 
-Move any story to "Ready for QA" and check:
-- Jira Automation → **Audit log** — should show SUCCESS
-- GitHub repo → **Actions** tab — should show a new `repository_dispatch` run
+1. Move any story to **Ready for QA** in Jira
+2. Go to **Project Settings** → **Automation** → **Audit log**
+3. You should see your rule with status **SUCCESS** and sub-steps:
+   - `Work item transitioned` — confirms the trigger fired
+   - `Send web request` → **Successfully published web request**
+4. On GitHub, go to your repo → **Actions** tab
+5. You should see a new run triggered by `repository_dispatch`
+
+> If the audit log shows SUCCESS but GitHub Actions does not fire:
+> - The PAT is likely a Fine-grained token — replace with Classic
+> - Check the PAT has `repo` + `workflow` scopes (verify at
+>   `https://api.github.com/user` with the token)
 
 ---
 
-## 9. Step 5 — MCP Tools (VS Code)
+## 10. Step 6 — MCP Servers (VS Code)
 
-MCP (Model Context Protocol) lets GitHub Copilot in VS Code call external APIs
-directly — Jira, GitHub, and Playwright tools.
+MCP (Model Context Protocol) servers extend GitHub Copilot in VS Code with
+real tools — letting it browse live web pages, run Playwright tests, query
+Jira tickets, and manage GitHub issues directly from the chat window.
 
-### 9.1 Create `.vscode/mcp.json`
+### 10.1 What each MCP server does
 
-> **IMPORTANT:** This file contains secrets. It is gitignored — never commit it.
+| Server | Package | What it enables in Copilot |
+|--------|---------|---------------------------|
+| `github` | GitHub's hosted MCP | Create/read issues, branches, PRs, trigger workflows, search code |
+| `playwright` | `@playwright/mcp` | Launch a real browser, click, type, take screenshots, inspect the DOM |
+| `playwright-test` | `@playwright/mcp --test` | Run existing `.spec.ts` files, read test results, heal failing tests |
+| `atlassian` | Atlassian's hosted MCP | Read/update Jira issues, transition statuses, add comments |
+
+### 10.2 Create `.vscode/mcp.json`
+
+> **IMPORTANT:** This file contains secrets. It is in `.gitignore` — never commit it.
+> Create it manually on each machine.
+
+Create the file at `.vscode/mcp.json` in the repo root:
 
 ```json
 {
@@ -313,23 +396,70 @@ directly — Jira, GitHub, and Playwright tools.
 }
 ```
 
-Replace `YOUR_GITHUB_CLASSIC_PAT` and `YOUR_ATLASSIAN_TOKEN` with your real values.
+Replace:
+- `YOUR_GITHUB_CLASSIC_PAT` — the Classic PAT created in Step 6.3
+- `YOUR_ATLASSIAN_TOKEN` — the raw Atlassian API token (NOT base64 encoded,
+  NOT prefixed with email — the MCP server handles auth internally)
 
-### 9.2 Reload MCP servers
+### 10.3 Start/reload MCP servers
 
-In VS Code: `Cmd+Shift+P` → **MCP: Restart All Servers**
+1. Open VS Code in the repo folder
+2. Press `Cmd+Shift+P` → type **MCP: List Servers** — you should see all 4 listed
+3. If servers show as stopped: `Cmd+Shift+P` → **MCP: Restart All Servers**
+4. A green dot next to each server name means it is running
 
-### 9.3 Verify
+> On first run, `@playwright/mcp@latest` will be downloaded via `npx` — this
+> takes ~30 seconds. Subsequent starts are instant.
 
-Open Copilot Chat (`Cmd+Shift+I`), type:
+### 10.4 Verify each server works
+
+Open Copilot Chat (`Cmd+Shift+I`) and try these:
+
+**GitHub MCP:**
 ```
-List my Jira projects
+List the open issues in my repo yuvrajkalshetti1990-byte/AgentE2EQAWorkflow-Playwright
 ```
-If it returns your project, MCP is working.
+Expected: returns a list of GitHub issues including the automated-qa ones.
+
+**Playwright MCP:**
+```
+Open https://www.saucedemo.com in a browser and tell me what you see
+```
+Expected: Copilot launches a browser window and describes the login page.
+
+**Playwright Test MCP:**
+```
+Run the tests in saucedemo/tests/saucedemo-checkout/negative/
+```
+Expected: Copilot runs the spec files and reports pass/fail counts.
+
+**Atlassian MCP:**
+```
+Get the details of Jira issue SCRUM-8
+```
+Expected: returns the full story with acceptance criteria.
+
+### 10.5 How the agents use MCP
+
+These built-in agents use specific MCP servers:
+
+| Agent | How to invoke | Uses |
+|-------|--------------|------|
+| `playwright-test-generator` | `@playwright-test-generator` in chat | `playwright` MCP to browse live app, then writes spec |
+| `playwright-test-healer` | `@playwright-test-healer` in chat | `playwright-test` MCP to run failing test, `playwright` MCP to inspect live page and fix selector |
+| `playwright-test-planner` | `@playwright-test-planner` in chat | `playwright` MCP to explore the app and create a test plan |
+
+### 10.6 Add `.vscode/mcp.json` to `.gitignore`
+
+Verify this line exists in your `.gitignore` (it does in this project):
+```
+.vscode/mcp.json
+```
+If it is missing, add it before committing anything.
 
 ---
 
-## 10. Running Tests Locally
+## 11. Running Tests Locally
 
 ### SauceDemo (all browsers)
 
@@ -373,7 +503,7 @@ npx playwright show-report OrangeHRM/playwright-report
 
 ---
 
-## 11. Adding a New Application
+## 12. Adding a New Application
 
 Follow this checklist to onboard a new app (e.g. `MyApp`):
 
@@ -440,7 +570,7 @@ GitHub issue. Then either:
 
 ---
 
-## 12. How the Heal Cycle Works
+## 13. How the Heal Cycle Works
 
 When a test breaks due to a UI selector change:
 
@@ -463,7 +593,7 @@ healer fixed it, and all 39 tests passed again.
 
 ---
 
-## 13. Known Limitations
+## 14. Known Limitations
 
 | Limitation | Detail | Workaround |
 |------------|--------|------------|
@@ -476,7 +606,7 @@ healer fixed it, and all 39 tests passed again.
 
 ---
 
-## 14. Quick Reference — Key Values
+## 15. Quick Reference — Key Values
 
 > Store sensitive values securely — do not hardcode in source files.
 
