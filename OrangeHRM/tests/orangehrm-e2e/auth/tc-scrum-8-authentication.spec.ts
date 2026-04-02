@@ -10,7 +10,7 @@
  * use a fresh page without storageState.
  */
 
-import { test, expect, Browser, chromium } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
 const BASE_URL = 'https://opensource-demo.orangehrmlive.com';
 const LOGIN_URL = `${BASE_URL}/web/index.php/auth/login`;
@@ -84,19 +84,57 @@ test.describe('Authentication - Invalid Credentials', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC-5, AC-6, AC-7, AC-8: Session Handling
-// Run serially so AC-6 (logout) always executes last and doesn't invalidate
-// the shared server session used by AC-5, AC-7, AC-8
-test.describe.serial('Authentication - Session Handling', () => {
-
+// ---------------------------------------------------------------------------
+// AC-5: Cookie clearing redirects to login
+// Isolated in its own describe to avoid CSRF state pollution in the serial block
+// on Firefox/WebKit. The project storageState provides an authenticated session.
+// ---------------------------------------------------------------------------
+test.describe('Authentication - Cookie Clearing', () => {
   test('[AC-5] clearing auth cookie redirects to login page', async ({ page, context }) => {
-    await page.goto(DASHBOARD_URL);
-    await expect(page).toHaveURL(/dashboard\/index/, { timeout: 15000 });
+    // Navigate to dashboard; storageState may not apply to all browsers (seed creates Chromium session)
+    await page.goto(DASHBOARD_URL, { waitUntil: 'domcontentloaded' });
 
+    // Login if not authenticated (Firefox/WebKit don't inherit the Chromium storageState)
+    if (page.url().includes('auth/login')) {
+      await page.locator('[name="username"]').fill(USERNAME);
+      await page.locator('[name="password"]').fill(PASSWORD);
+      await page.locator('[type="submit"]').click();
+      await expect(page).toHaveURL(/dashboard\/index/, { timeout: 15000 });
+    }
+
+    // Clear all cookies to simulate session expiry
     await context.clearCookies();
-    await page.goto(DASHBOARD_URL);
 
-    await expect(page).toHaveURL(/auth\/login/, { timeout: 10000 });
+    // Navigate to about:blank first to flush cached state (prevents Firefox from serving
+    // a stale cached dashboard before the server-redirect resolves)
+    await page.goto('about:blank', { waitUntil: 'domcontentloaded' });
+
+    // Navigate to protected page — server must redirect to login
+    await page.goto(DASHBOARD_URL, { waitUntil: 'domcontentloaded' });
+    await expect(page).toHaveURL(/auth\/login/, { timeout: 15000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-6, AC-7, AC-8: Session Handling (serial)
+// Run serially so AC-6 (logout) always executes last and doesn't invalidate
+// the shared server session used by AC-7, AC-8
+// ---------------------------------------------------------------------------
+test.describe.serial('Authentication - Session Handling', () => {
+  // Start with an empty context so Chromium-generated storageState cookies don't
+  // cause CSRF mismatch when Firefox/WebKit attempts re-login in beforeEach
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  // Self-login before each test — ensures Firefox/WebKit have an active session
+  // regardless of whether storageState was applied by the config
+  test.beforeEach(async ({ page }) => {
+    await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded' });
+    if (page.url().includes('auth/login')) {
+      await page.locator('[name="username"]').fill(USERNAME);
+      await page.locator('[name="password"]').fill(PASSWORD);
+      await page.locator('[type="submit"]').click();
+      await expect(page).toHaveURL(/dashboard\/index/, { timeout: 15000 });
+    }
   });
 
   test('[AC-7] hard refresh preserves authenticated session', async ({ page }) => {
