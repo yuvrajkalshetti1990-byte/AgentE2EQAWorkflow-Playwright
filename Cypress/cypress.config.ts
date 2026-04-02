@@ -6,5 +6,9 @@ export default defineConfig({
     supportFile: 'cypress/support/e2e.ts',
     videosFolder: 'cypress/videos',
     screenshotsFolder: 'cypress/screenshots',
+    reporter: 'json',
+    reporterOptions: {
+      output: 'cypress/results/results.json',
+    },
   },
 });

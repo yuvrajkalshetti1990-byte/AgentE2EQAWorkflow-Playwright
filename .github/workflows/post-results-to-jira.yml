@@ -76,9 +76,11 @@ jobs:
               const jsonPath = `/tmp/${artifact.name}/results.json`;
               if (fs.existsSync(jsonPath)) {
                 const results = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-                totalPassed  += results.stats?.expected  ?? 0;
-                totalFailed  += results.stats?.unexpected ?? 0;
-                totalSkipped += results.stats?.skipped    ?? 0;
+                // Playwright JSON: stats.expected / unexpected / skipped
+                // Cypress/Mocha JSON: stats.passes / failures / pending
+                totalPassed  += results.stats?.expected   ?? results.stats?.passes   ?? 0;
+                totalFailed  += results.stats?.unexpected ?? results.stats?.failures ?? 0;
+                totalSkipped += results.stats?.skipped    ?? results.stats?.pending  ?? 0;
               }
             }
 

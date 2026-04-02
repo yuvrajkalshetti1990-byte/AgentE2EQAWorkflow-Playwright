@@ -96,9 +96,20 @@ jobs:
         SPEC_COUNT=$(find Cypress/cypress/e2e -name '*.cy.ts' 2>/dev/null | wc -l | tr -d ' ')
         if [[ "$SPEC_COUNT" -eq 0 ]]; then
           echo "No Cypress specs found — skipping run"
+          mkdir -p Cypress/cypress/results
+          echo '{"stats":{"passes":0,"failures":0,"pending":0,"tests":0}}' > Cypress/cypress/results/results.json
           exit 0
         fi
-        npx cypress run --config-file Cypress/cypress.config.ts
+        npx cypress run \
+          --config-file Cypress/cypress.config.ts \
+          --reporter json \
+          --reporter-options "output=Cypress/cypress/results/results.json"
+    - uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() }}
+      with:
+        name: cypress-test-results-json
+        path: Cypress/cypress/results/results.json
+        retention-days: 30
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:

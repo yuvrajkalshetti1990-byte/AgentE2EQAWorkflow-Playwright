@@ -24,8 +24,10 @@ node_modules/
 
 # Cypress artifacts
 /Cypress/cypress/videos/
+/Cypress/cypress/results/
 /Cypress/cypress/screenshots/
 /Cypress/cypress/downloads/
 
 # Secrets — never commit credentials
 .vscode/mcp.json
+.env
