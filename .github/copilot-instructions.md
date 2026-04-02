@@ -10,6 +10,7 @@ always delegate to the correct agent.
 
 | Task | Framework | Agent to use | How to invoke |
 |------|-----------|-------------|---------------|
+| Review ACs for automation feasibility | Any | `@ac-reviewer` | `@ac-reviewer <Jira issue key or paste ACs>` |
 | Create a test plan from a Jira story or URL | Any | `@playwright-test-planner` | `@playwright-test-planner <story details or URL>` |
 | Generate a new Playwright `.spec.ts` test file | Playwright | `@playwright-test-generator` | `@playwright-test-generator <test plan item>` |
 | Fix a failing or broken Playwright test | Playwright | `@playwright-test-healer` | `@playwright-test-healer <error or test file>` |
@@ -28,7 +29,7 @@ to do the work yourself in default agent mode.
 | `playwright-test` | Live browser control + test runner | Playwright agents (wired via agent front matter) |
 | `playwright` | Standalone browser sessions | `@cypress-test-generator` (exploration only) + general use |
 | `github` | Branch creation, issue management, file operations | `jira-ready-for-qa.yml` pipeline + manual tasks |
-| `atlassian` | Read/write Jira issues, transitions, comments | `jira-ready-for-qa.yml` pipeline + manual tasks |
+| `atlassian` | Read/write Jira issues, transitions, comments | `jira-ready-for-qa.yml` pipeline + `@ac-reviewer` |
 
 The `playwright-test` MCP server is embedded directly in each agent's front matter — it is
 available automatically when the agent is active. You do not need to manually invoke MCP tools
