@@ -1,0 +1,119 @@
+name: Post Test Results to Jira
+
+# Triggers after the Playwright Tests workflow completes on main/master.
+# Posts a comment on the Jira issue linked to the branch with pass/fail summary.
+
+on:
+  workflow_run:
+    workflows: ["Playwright Tests"]
+    types: [completed]
+    branches: ["auto/test-*"]
+
+env:
+  ATLASSIAN_CLOUD_ID: c2269322-6897-4ede-8e92-04b6edd6edf6
+  ATLASSIAN_BASE_URL: https://yuvrajkalshetti1990.atlassian.net
+  ATLASSIAN_EMAIL: yuvrajkalshetti1990@gmail.com
+
+jobs:
+  report-to-jira:
+    name: Report results to Jira
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion != 'skipped'
+
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Extract Jira issue key from branch name
+        id: extract
+        run: |
+          BRANCH="${{ github.event.workflow_run.head_branch }}"
+          # Branch format: auto/test-scrum-8  ->  SCRUM-8
+          ISSUE_KEY=$(echo "$BRANCH" | sed 's|auto/test-||' | tr '[:lower:]' '[:upper:]' | sed 's/-\([0-9]\)/-\1/')
+          echo "ISSUE_KEY=$ISSUE_KEY" >> "$GITHUB_OUTPUT"
+          echo "Branch: $BRANCH -> Issue: $ISSUE_KEY"
+
+      - name: Build result summary
+        id: result
+        run: |
+          CONCLUSION="${{ github.event.workflow_run.conclusion }}"
+          RUN_ID="${{ github.event.workflow_run.id }}"
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/$RUN_ID"
+          BRANCH="${{ github.event.workflow_run.head_branch }}"
+          SHA="${{ github.event.workflow_run.head_sha }}"
+          SHORT_SHA="${SHA:0:7}"
+
+          if [[ "$CONCLUSION" == "success" ]]; then
+            ICON="PASSED"
+            RESULT_TEXT="All tests passed."
+          elif [[ "$CONCLUSION" == "failure" ]]; then
+            ICON="FAILED"
+            RESULT_TEXT="One or more tests failed. Review the workflow run for details."
+          else
+            ICON="$CONCLUSION"
+            RESULT_TEXT="Workflow ended with status: $CONCLUSION"
+          fi
+
+          echo "ICON=$ICON"           >> "$GITHUB_OUTPUT"
+          echo "RESULT_TEXT=$RESULT_TEXT" >> "$GITHUB_OUTPUT"
+          echo "RUN_URL=$RUN_URL"     >> "$GITHUB_OUTPUT"
+          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "BRANCH=$BRANCH"       >> "$GITHUB_OUTPUT"
+
+      - name: Post comment on Jira issue
+        env:
+          ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
+          ISSUE_KEY: ${{ steps.extract.outputs.ISSUE_KEY }}
+          ICON: ${{ steps.result.outputs.ICON }}
+          RESULT_TEXT: ${{ steps.result.outputs.RESULT_TEXT }}
+          RUN_URL: ${{ steps.result.outputs.RUN_URL }}
+          SHORT_SHA: ${{ steps.result.outputs.SHORT_SHA }}
+          BRANCH: ${{ steps.result.outputs.BRANCH }}
+        run: |
+          AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
+
+          # Verify the issue exists before posting
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Basic $AUTH" \
+            -H "Accept: application/json" \
+            "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY")
+
+          if [[ "$HTTP_STATUS" != "200" ]]; then
+            echo "Jira issue $ISSUE_KEY not found (HTTP $HTTP_STATUS) - skipping comment"
+            exit 0
+          fi
+
+          curl -sf -X POST \
+            -H "Authorization: Basic $AUTH" \
+            -H "Content-Type: application/json" \
+            "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY/comment" \
+            -d "{
+              \"body\": {
+                \"version\": 1,
+                \"type\": \"doc\",
+                \"content\": [
+                  {
+                    \"type\": \"paragraph\",
+                    \"content\": [
+                      { \"type\": \"text\", \"text\": \"CI Test Result: $ICON\", \"marks\": [{\"type\": \"strong\"}] }
+                    ]
+                  },
+                  {
+                    \"type\": \"paragraph\",
+                    \"content\": [
+                      { \"type\": \"text\", \"text\": \"$RESULT_TEXT\" }
+                    ]
+                  },
+                  {
+                    \"type\": \"bulletList\",
+                    \"content\": [
+                      { \"type\": \"listItem\", \"content\": [{ \"type\": \"paragraph\", \"content\": [{ \"type\": \"text\", \"text\": \"Branch: $BRANCH\" }] }] },
+                      { \"type\": \"listItem\", \"content\": [{ \"type\": \"paragraph\", \"content\": [{ \"type\": \"text\", \"text\": \"Commit: $SHORT_SHA\" }] }] },
+                      { \"type\": \"listItem\", \"content\": [{ \"type\": \"paragraph\", \"content\": [{ \"type\": \"text\", \"text\": \"Run: $RUN_URL\" }] }] }
+                    ]
+                  }
+                ]
+              }
+            }"
+          echo "Jira comment posted for $ISSUE_KEY: $ICON"
