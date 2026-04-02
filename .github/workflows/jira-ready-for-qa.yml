@@ -109,6 +109,7 @@ jobs:
 
       - name: Review AC quality with OpenAI
         id: ac_review
+        continue-on-error: true
         env:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -147,7 +148,7 @@ jobs:
             exit 0
           fi
 
-          # Build OpenAI request — prompt written to a variable using printf to avoid YAML indentation issues
+          # Build OpenAI request
           PROMPT=$(printf '%s\n\n%s\n%s\n%s\n%s\n%s\n\n%s\n\n%s\n%s\n%s\n%s\n\n%s\n\n%s\n%s\n' \
             'You are an expert QA engineer reviewing acceptance criteria (ACs) for test automation feasibility.' \
             'Score the following Jira story description. Extract each AC and score it 1-5 on:' \
@@ -164,21 +165,65 @@ jobs:
             'Story description:' \
             "$DESC")
 
-          RESPONSE=$(curl --noproxy '*' -sf https://api.openai.com/v1/chat/completions \
+          # Call OpenAI — capture HTTP code separately so we can diagnose failures
+          HTTP_CODE=$(curl --noproxy '*' -s -o /tmp/openai_response.json -w "%{http_code}" \
             -H "Authorization: Bearer $OPENAI_API_KEY" \
             -H "Content-Type: application/json" \
+            https://api.openai.com/v1/chat/completions \
             -d "{
               \"model\": \"gpt-4o-mini\",
               \"temperature\": 0,
               \"messages\": [{\"role\": \"user\", \"content\": $(echo "$PROMPT" | jq -Rs .)}]
             }")
 
-          AI_JSON=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
-          SCORE=$(echo "$AI_JSON"   | jq -r '.score')
-          VERDICT=$(echo "$AI_JSON" | jq -r '.verdict')
-          SUMMARY=$(echo "$AI_JSON" | jq -r '.summary')
-          ISSUES=$(echo "$AI_JSON"  | jq -r '.issues[]' | sed 's/^/• /' | tr '\n' '|')
-          SUGGESTIONS=$(echo "$AI_JSON" | jq -r '.suggestions[]' | sed 's/^/• /' | tr '\n' '|')
+          echo "OpenAI HTTP status: $HTTP_CODE"
+
+          if [[ "$HTTP_CODE" != "200" ]]; then
+            echo "ERROR: OpenAI API returned HTTP $HTTP_CODE"
+            cat /tmp/openai_response.json
+            # Default to IMPROVE so pipeline continues even if OpenAI is unavailable
+            echo "SCORE=3.0"     >> "$GITHUB_OUTPUT"
+            echo "VERDICT=IMPROVE" >> "$GITHUB_OUTPUT"
+            echo "SUMMARY=AC review skipped (OpenAI unavailable — HTTP $HTTP_CODE). Pipeline continuing." >> "$GITHUB_OUTPUT"
+            echo "ISSUES="       >> "$GITHUB_OUTPUT"
+            echo "SUGGESTIONS="  >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          RESPONSE=$(cat /tmp/openai_response.json)
+
+          # Validate response is parseable JSON
+          if ! echo "$RESPONSE" | jq empty 2>/dev/null; then
+            echo "ERROR: OpenAI returned non-JSON response:"
+            echo "$RESPONSE"
+            echo "SCORE=3.0"     >> "$GITHUB_OUTPUT"
+            echo "VERDICT=IMPROVE" >> "$GITHUB_OUTPUT"
+            echo "SUMMARY=AC review skipped (invalid OpenAI response). Pipeline continuing." >> "$GITHUB_OUTPUT"
+            echo "ISSUES="       >> "$GITHUB_OUTPUT"
+            echo "SUGGESTIONS="  >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Extract and validate AI content field
+          AI_CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+          if [[ -z "$AI_CONTENT" ]]; then
+            echo "ERROR: OpenAI response missing .choices[0].message.content"
+            echo "$RESPONSE" | jq .
+            echo "SCORE=3.0"     >> "$GITHUB_OUTPUT"
+            echo "VERDICT=IMPROVE" >> "$GITHUB_OUTPUT"
+            echo "SUMMARY=AC review skipped (empty OpenAI content). Pipeline continuing." >> "$GITHUB_OUTPUT"
+            echo "ISSUES="       >> "$GITHUB_OUTPUT"
+            echo "SUGGESTIONS="  >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Parse the JSON string returned by OpenAI
+          AI_JSON=$(echo "$AI_CONTENT" | jq . 2>/dev/null || echo "$AI_CONTENT")
+          SCORE=$(echo "$AI_JSON"    | jq -r '.score    // "3.0"')
+          VERDICT=$(echo "$AI_JSON"  | jq -r '.verdict  // "IMPROVE"')
+          SUMMARY=$(echo "$AI_JSON"  | jq -r '.summary  // "Review completed."')
+          ISSUES=$(echo "$AI_JSON"   | jq -r '.issues[]? // empty' | sed 's/^/• /' | tr '\n' '|')
+          SUGGESTIONS=$(echo "$AI_JSON" | jq -r '.suggestions[]? // empty' | sed 's/^/• /' | tr '\n' '|')
 
           echo "SCORE=$SCORE"           >> "$GITHUB_OUTPUT"
           echo "VERDICT=$VERDICT"       >> "$GITHUB_OUTPUT"
