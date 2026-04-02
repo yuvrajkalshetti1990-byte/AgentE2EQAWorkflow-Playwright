@@ -201,35 +201,55 @@ $DESC"
         run: |
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
 
-          # Build issues and suggestions as Jira doc list items
-          build_list_items() {
-            echo "$1" | tr '|' '\n' | grep -v '^$' | while IFS= read -r item; do
-              printf '{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"%s"}]}]},' \
-                "$(echo "$item" | sed 's/"/\\"/g')"
-            done | sed 's/,$//'
+          # Convert pipe-delimited text into a JSON array of ADF listItem nodes.
+          # Returns '[]' when input is empty — avoids invalid empty bulletList.
+          make_list_items() {
+            echo "$1" | tr '|' '\n' | grep -v '^$' | \
+              jq -Rc '{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":.}]}]}' | \
+              jq -sc '.'
           }
 
-          ISSUE_ITEMS=$(build_list_items "$ISSUES")
-          SUGGESTION_ITEMS=$(build_list_items "$SUGGESTIONS")
+          ISSUE_ITEMS=$(make_list_items "$ISSUES")
+          SUGGESTION_ITEMS=$(make_list_items "$SUGGESTIONS")
+
+          # Build the full ADF document body using jq — handles all special-char escaping.
+          # Bullet-list sections are omitted entirely when they have no items.
+          BODY=$(jq -n \
+            --arg score "$SCORE" \
+            --arg verdict "$VERDICT" \
+            --arg summary "$SUMMARY" \
+            --argjson issue_items "$ISSUE_ITEMS" \
+            --argjson suggestion_items "$SUGGESTION_ITEMS" \
+            '
+            def section(heading; items):
+              if (items | length) > 0 then
+                [
+                  {"type":"heading","attrs":{"level":4},"content":[{"type":"text","text":heading}]},
+                  {"type":"bulletList","content":items}
+                ]
+              else [] end;
+
+            {
+              "body": {
+                "version": 1, "type": "doc",
+                "content": (
+                  [
+                    {"type":"heading","attrs":{"level":3},"content":[{"type":"text","text":"AC Automation Feasibility Review"}]},
+                    {"type":"paragraph","content":[{"type":"text","text":("Score: " + $score + " / 5.0  |  Verdict: " + $verdict),"marks":[{"type":"strong"}]}]},
+                    {"type":"paragraph","content":[{"type":"text","text":$summary}]}
+                  ]
+                  + section("Issues Found"; $issue_items)
+                  + section("Suggestions"; $suggestion_items)
+                )
+              }
+            }
+            ')
 
           curl -sf -X POST \
             -H "Authorization: Basic $AUTH" \
             -H "Content-Type: application/json" \
             "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY/comment" \
-            -d "{
-              \"body\": {
-                \"version\": 1, \"type\": \"doc\",
-                \"content\": [
-                  {\"type\":\"heading\",\"attrs\":{\"level\":3},\"content\":[{\"type\":\"text\",\"text\":\"AC Automation Feasibility Review\"}]},
-                  {\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Score: $SCORE / 5.0  |  Verdict: $VERDICT\",\"marks\":[{\"type\":\"strong\"}]}]},
-                  {\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"$SUMMARY\"}]},
-                  {\"type\":\"heading\",\"attrs\":{\"level\":4},\"content\":[{\"type\":\"text\",\"text\":\"Issues Found\"}]},
-                  {\"type\":\"bulletList\",\"content\":[$ISSUE_ITEMS]},
-                  {\"type\":\"heading\",\"attrs\":{\"level\":4},\"content\":[{\"type\":\"text\",\"text\":\"Suggestions\"}]},
-                  {\"type\":\"bulletList\",\"content\":[$SUGGESTION_ITEMS]}
-                ]
-              }
-            }"
+            -d "$BODY"
           echo "AC review comment posted to $ISSUE_KEY"
 
       - name: Block pipeline and move to In Progress if ACs need rewrite
