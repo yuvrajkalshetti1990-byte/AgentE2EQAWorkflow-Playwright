@@ -8,16 +8,23 @@ import path from 'path';
 export const AUTH_FILE = path.resolve(__dirname, '../.auth/admin.json');
 
 setup('authenticate: OrangeHRM Admin', async ({ page }) => {
+  const username = process.env.ORANGEHRM_USERNAME;
+  const password = process.env.ORANGEHRM_PASSWORD;
+
+  if (!username || !password) {
+    throw new Error(
+      'Missing credentials: set ORANGEHRM_USERNAME and ORANGEHRM_PASSWORD env vars.\n' +
+      'Locally: create a .env file or export them in your shell.\n' +
+      'CI: add them as GitHub Secrets (ORANGEHRM_USERNAME, ORANGEHRM_PASSWORD).'
+    );
+  }
+
   await page.goto(
     'https://opensource-demo.orangehrmlive.com/web/index.php/auth/login'
   );
 
-  await page.locator('[name="username"]').fill(
-    process.env.ORANGEHRM_USERNAME ?? 'Admin'
-  );
-  await page.locator('[name="password"]').fill(
-    process.env.ORANGEHRM_PASSWORD ?? 'admin123'
-  );
+  await page.locator('[name="username"]').fill(username);
+  await page.locator('[name="password"]').fill(password);
   await page.locator('[type="submit"]').click();
 
   await expect(page).toHaveURL(/dashboard\/index/, { timeout: 15000 });

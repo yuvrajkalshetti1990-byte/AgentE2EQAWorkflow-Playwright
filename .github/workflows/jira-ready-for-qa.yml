@@ -1,4 +1,4 @@
-name: Jira Ready for QA - Auto-generate OrangeHRM Playwright Tests
+name: Jira Ready for QA - Auto-generate Tests
 
 # TRIGGERS
 # 1. Automated: Jira fires a webhook -> repository_dispatch event
@@ -9,6 +9,12 @@ name: Jira Ready for QA - Auto-generate OrangeHRM Playwright Tests
 #        Headers: Authorization: Bearer <GITHUB_PAT>, Content-Type: application/json
 #        Body:  { "event_type": "jira-ready-for-qa", "client_payload": { "issue_key": "{{issue.key}}" } }
 # 2. Manual: workflow_dispatch from GitHub Actions tab
+#
+# FRAMEWORK DETECTION (Row 2 fix)
+#   - Reads the Jira issue labels field from the API response
+#   - If label "cypress" is present  -> framework = cypress
+#   - Otherwise                      -> framework = playwright  (default)
+#   - Manual workflow_dispatch exposes a "framework" input to override
 
 on:
   repository_dispatch:
@@ -20,6 +26,12 @@ on:
         description: 'Jira Issue Key (e.g. SCRUM-8)'
         required: true
         type: string
+      framework:
+        description: 'Test framework (auto-detected from Jira label, or override here)'
+        required: false
+        type: choice
+        default: 'auto'
+        options: [auto, playwright, cypress]
 
 env:
   ISSUE_KEY: ${{ github.event.client_payload.issue_key || inputs.issue_key }}
@@ -65,17 +77,195 @@ jobs:
           RESPONSE=$(curl -sf \
             -H "Authorization: Basic $AUTH" \
             -H "Accept: application/json" \
-            "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY?fields=summary,description,status")
+            "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY?fields=summary,description,status,labels")
 
           SUMMARY=$(echo "$RESPONSE" | jq -r '.fields.summary')
           STATUS=$(echo "$RESPONSE" | jq -r '.fields.status.name')
+          LABELS=$(echo "$RESPONSE" | jq -r '.fields.labels[]?' | tr '\n' ',')
+
+          # Detect framework: manual override > Jira label > default playwright
+          MANUAL_FW="${{ inputs.framework }}"
+          if [[ "$MANUAL_FW" == "cypress" ]]; then
+            FRAMEWORK="cypress"
+          elif [[ "$MANUAL_FW" == "playwright" ]]; then
+            FRAMEWORK="playwright"
+          elif echo "$LABELS" | grep -qi "cypress"; then
+            FRAMEWORK="cypress"
+          else
+            FRAMEWORK="playwright"
+          fi
 
           echo "ISSUE_SUMMARY=$SUMMARY" >> "$GITHUB_OUTPUT"
           echo "ISSUE_STATUS=$STATUS"   >> "$GITHUB_OUTPUT"
+          echo "FRAMEWORK=$FRAMEWORK"   >> "$GITHUB_OUTPUT"
 
           echo "Jira Issue: $ISSUE_KEY"
           echo "Summary:    $SUMMARY"
           echo "Status:     $STATUS"
+          echo "Labels:     $LABELS"
+          echo "Framework:  $FRAMEWORK"
+
+      - name: Review AC quality with OpenAI
+        id: ac_review
+        env:
+          ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
+
+          # Fetch full description (ATC text lives here)
+          DESC=$(curl -sf \
+            -H "Authorization: Basic $AUTH" \
+            -H "Accept: application/json" \
+            "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY?fields=description" \
+            | jq -r '
+                def extract_text: . as $node |
+                  if type == "array" then map(extract_text) | add // ""
+                  elif type == "object" then
+                    if .type == "text" then .text // ""
+                    else (.content // [] | map(extract_text) | add // "")
+                    end
+                  else ""
+                  end;
+                .fields.description | extract_text')
+
+          if [[ -z "$DESC" || "$DESC" == "null" ]]; then
+            echo "SCORE=0"           >> "$GITHUB_OUTPUT"
+            echo "VERDICT=REWRITE"   >> "$GITHUB_OUTPUT"
+            echo "FEEDBACK=No description or acceptance criteria found on this Jira story. Please add ACs before moving to Ready for QA." >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Build OpenAI request
+          PROMPT="You are an expert QA engineer reviewing acceptance criteria (ACs) for test automation feasibility.
+
+Score the following Jira story description. Extract each AC and score it 1-5 on:
+- Specific (exact values/messages vs vague language)
+- Verifiable (clear pass/fail a script can assert vs 'should work')
+- Scoped (one behaviour vs compound)
+- Data-independent (works with test data vs requires specific live data)
+- UI-reachable (expressible through browser vs DB/API-only)
+
+Overall score = average of all individual AC averages.
+
+Verdict rules:
+- 4.0-5.0: AUTOMATE (ready as-is)
+- 3.0-3.9: IMPROVE (minor fixes needed, proceed with warnings)
+- 1.0-2.9: REWRITE (too vague, pipeline should be blocked)
+
+Return ONLY valid JSON in this exact format (no markdown, no explanation):
+{
+  \"score\": <number 1.0-5.0>,
+  \"verdict\": \"AUTOMATE|IMPROVE|REWRITE\",
+  \"summary\": \"<2-3 sentence overall assessment>\",
+  \"issues\": [\"<issue 1>\", \"<issue 2>\"],
+  \"suggestions\": [\"<suggestion 1>\", \"<suggestion 2>\"]
+}
+
+Story description:
+$DESC"
+
+          RESPONSE=$(curl -sf https://api.openai.com/v1/chat/completions \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"model\": \"gpt-4o-mini\",
+              \"temperature\": 0,
+              \"messages\": [{\"role\": \"user\", \"content\": $(echo "$PROMPT" | jq -Rs .)}]
+            }")
+
+          AI_JSON=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
+          SCORE=$(echo "$AI_JSON"   | jq -r '.score')
+          VERDICT=$(echo "$AI_JSON" | jq -r '.verdict')
+          SUMMARY=$(echo "$AI_JSON" | jq -r '.summary')
+          ISSUES=$(echo "$AI_JSON"  | jq -r '.issues[]' | sed 's/^/• /' | tr '\n' '|')
+          SUGGESTIONS=$(echo "$AI_JSON" | jq -r '.suggestions[]' | sed 's/^/• /' | tr '\n' '|')
+
+          echo "SCORE=$SCORE"           >> "$GITHUB_OUTPUT"
+          echo "VERDICT=$VERDICT"       >> "$GITHUB_OUTPUT"
+          echo "SUMMARY=$SUMMARY"       >> "$GITHUB_OUTPUT"
+          echo "ISSUES=$ISSUES"         >> "$GITHUB_OUTPUT"
+          echo "SUGGESTIONS=$SUGGESTIONS" >> "$GITHUB_OUTPUT"
+
+          echo "AC Review Score:   $SCORE"
+          echo "AC Review Verdict: $VERDICT"
+
+      - name: Post AC review comment to Jira
+        env:
+          ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
+          SCORE: ${{ steps.ac_review.outputs.SCORE }}
+          VERDICT: ${{ steps.ac_review.outputs.VERDICT }}
+          SUMMARY: ${{ steps.ac_review.outputs.SUMMARY }}
+          ISSUES: ${{ steps.ac_review.outputs.ISSUES }}
+          SUGGESTIONS: ${{ steps.ac_review.outputs.SUGGESTIONS }}
+        run: |
+          AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
+
+          # Convert pipe-delimited text into a JSON array of ADF listItem nodes.
+          # Returns '[]' when input is empty — avoids invalid empty bulletList.
+          make_list_items() {
+            echo "$1" | tr '|' '\n' | grep -v '^$' | \
+              jq -Rc '{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":.}]}]}' | \
+              jq -sc '.'
+          }
+
+          ISSUE_ITEMS=$(make_list_items "$ISSUES")
+          SUGGESTION_ITEMS=$(make_list_items "$SUGGESTIONS")
+
+          # Build the full ADF document body using jq — handles all special-char escaping.
+          # Bullet-list sections are omitted entirely when they have no items.
+          BODY=$(jq -n \
+            --arg score "$SCORE" \
+            --arg verdict "$VERDICT" \
+            --arg summary "$SUMMARY" \
+            --argjson issue_items "$ISSUE_ITEMS" \
+            --argjson suggestion_items "$SUGGESTION_ITEMS" \
+            '
+            def section(heading; items):
+              if (items | length) > 0 then
+                [
+                  {"type":"heading","attrs":{"level":4},"content":[{"type":"text","text":heading}]},
+                  {"type":"bulletList","content":items}
+                ]
+              else [] end;
+
+            {
+              "body": {
+                "version": 1, "type": "doc",
+                "content": (
+                  [
+                    {"type":"heading","attrs":{"level":3},"content":[{"type":"text","text":"AC Automation Feasibility Review"}]},
+                    {"type":"paragraph","content":[{"type":"text","text":("Score: " + $score + " / 5.0  |  Verdict: " + $verdict),"marks":[{"type":"strong"}]}]},
+                    {"type":"paragraph","content":[{"type":"text","text":$summary}]}
+                  ]
+                  + section("Issues Found"; $issue_items)
+                  + section("Suggestions"; $suggestion_items)
+                )
+              }
+            }
+            ')
+
+          curl -sf -X POST \
+            -H "Authorization: Basic $AUTH" \
+            -H "Content-Type: application/json" \
+            "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY/comment" \
+            -d "$BODY"
+          echo "AC review comment posted to $ISSUE_KEY"
+
+      - name: Block pipeline and move to In Progress if ACs need rewrite
+        if: steps.ac_review.outputs.VERDICT == 'REWRITE'
+        env:
+          ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
+        run: |
+          AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
+          # Transition back to In Progress (ID 21)
+          curl -sf -X POST \
+            -H "Authorization: Basic $AUTH" \
+            -H "Content-Type: application/json" \
+            "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY/transitions" \
+            -d '{"transition": {"id": "21"}}'
+          echo "Story moved back to In Progress — ACs require rewrite before automation can proceed."
+          exit 1
 
       - name: Create feature branch
         id: branch
@@ -102,13 +292,27 @@ jobs:
         run: |
           BRANCH="${{ steps.branch.outputs.BRANCH }}"
           JIRA_SUMMARY="${{ steps.jira.outputs.ISSUE_SUMMARY }}"
+          FRAMEWORK="${{ steps.jira.outputs.FRAMEWORK }}"
           gh label create "automated-qa" --color "#0075ca" --description "Automated QA test generation" 2>/dev/null || true
-          printf '## Automation Task\n\n**Jira Story:** [%s](%s/browse/%s)\n**Branch:** `%s`\n\n## Agent Instructions\n\nGenerate Playwright TypeScript E2E tests for all acceptance criteria in the Jira story.\n\n### Conventions\n- Place files under `OrangeHRM/tests/orangehrm-e2e/` (subfolders: auth/ pim/ leave/ session/)\n- Reuse storageState from `seed.spec.ts` (do NOT re-login)\n- Config: `OrangeHRM/orangehrm.playwright.config.ts`\n- Selectors: prefer [data-test], ARIA roles, [name] attributes\n- One `test()` per acceptance criterion\n- Naming: `tc-{story-id}-{description}.spec.ts`\n- Credentials from env: ORANGEHRM_USERNAME / ORANGEHRM_PASSWORD\n- Use timestamp suffixes for dynamic test data\n- Add afterAll teardown when test data is created\n\nCommit all test files to branch `%s`\n' \
-            "$ISSUE_KEY" "$ATLASSIAN_BASE_URL" "$ISSUE_KEY" "$BRANCH" "$BRANCH" \
-            > /tmp/issue_body.md
+          gh label create "framework:playwright" --color "#45ba4b" --description "Playwright tests" 2>/dev/null || true
+          gh label create "framework:cypress" --color "#04c38e" --description "Cypress tests" 2>/dev/null || true
+
+          if [[ "$FRAMEWORK" == "cypress" ]]; then
+            printf '## Automation Task\n\n**Jira Story:** [%s](%s/browse/%s)\n**Branch:** `%s`\n**Framework:** Cypress\n\n## Agent Instructions\n\nGenerate Cypress TypeScript E2E tests for all acceptance criteria in the Jira story.\n\n### Conventions\n- Place files under `Cypress/cypress/e2e/` (one subfolder per story)\n- Config: `Cypress/cypress.config.ts`\n- Naming: `{app-prefix}-cy-{area}-{seq:02d}-{kebab-description}.cy.ts`\n- Selectors: prefer [data-cy], [data-testid], ARIA roles\n- One `it()` per acceptance criterion\n- Use `cy.session()` for login state caching\n- Use `cy.intercept()` for network stubbing/waiting\n\nCommit all test files to branch `%s`\n' \
+              "$ISSUE_KEY" "$ATLASSIAN_BASE_URL" "$ISSUE_KEY" "$BRANCH" "$BRANCH" \
+              > /tmp/issue_body.md
+            FRAMEWORK_LABEL="framework:cypress"
+          else
+            printf '## Automation Task\n\n**Jira Story:** [%s](%s/browse/%s)\n**Branch:** `%s`\n**Framework:** Playwright\n\n## Agent Instructions\n\nGenerate Playwright TypeScript E2E tests for all acceptance criteria in the Jira story.\n\n### Conventions\n- Place files under `Playwright/OrangeHRM/tests/orangehrm-e2e/` (subfolders: auth/ pim/ leave/ session/)\n- Reuse storageState from `seed.spec.ts` (do NOT re-login)\n- Config: `Playwright/OrangeHRM/orangehrm.playwright.config.ts`\n- Selectors: prefer [data-test], ARIA roles, [name] attributes\n- One `test()` per acceptance criterion\n- Naming: `tc-{story-id}-{description}.spec.ts`\n- Credentials from env: ORANGEHRM_USERNAME / ORANGEHRM_PASSWORD\n- Use timestamp suffixes for dynamic test data\n- Add afterAll teardown when test data is created\n\nCommit all test files to branch `%s`\n' \
+              "$ISSUE_KEY" "$ATLASSIAN_BASE_URL" "$ISSUE_KEY" "$BRANCH" "$BRANCH" \
+              > /tmp/issue_body.md
+            FRAMEWORK_LABEL="framework:playwright"
+          fi
+
           ISSUE_URL=$(gh issue create \
             --title "[$ISSUE_KEY] Automate: $JIRA_SUMMARY" \
             --label "automated-qa" \
+            --label "$FRAMEWORK_LABEL" \
             --body-file /tmp/issue_body.md)
           echo "$ISSUE_URL"
           ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -oP '(?<=/issues/)\d+')

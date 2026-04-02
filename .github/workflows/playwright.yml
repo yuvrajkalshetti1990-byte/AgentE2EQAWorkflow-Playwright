@@ -1,9 +1,9 @@
 name: Playwright Tests
 on:
   push:
-    branches: [ main, master ]
+    branches: [ dev, 'auto/test-*' ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ dev ]
 jobs:
   test-saucedemo:
     name: SauceDemo E2E Tests
@@ -19,12 +19,18 @@ jobs:
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
     - name: Run SauceDemo Playwright tests
-      run: npx playwright test --config=saucedemo/saucedemo.playwright.config.ts
+      run: npx playwright test --config=Playwright/saucedemo/saucedemo.playwright.config.ts --reporter=html,json --reporter-json-output-file=Playwright/saucedemo/test-results/results.json
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:
         name: saucedemo-playwright-report
-        path: saucedemo/playwright-report/
+        path: Playwright/saucedemo/playwright-report/
+        retention-days: 30
+    - uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() }}
+      with:
+        name: saucedemo-test-results-json
+        path: Playwright/saucedemo/test-results/results.json
         retention-days: 30
 
   test-orangehrm:
@@ -43,11 +49,54 @@ jobs:
       run: npm ci
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
+    - name: Validate OrangeHRM session (preflight)
+      run: |
+        STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+          "https://opensource-demo.orangehrmlive.com/web/index.php/auth/login")
+        if [ "$STATUS" != "200" ]; then
+          echo "OrangeHRM is unreachable (HTTP $STATUS) - aborting"
+          exit 1
+        fi
+        echo "OrangeHRM reachable (HTTP $STATUS) - proceeding"
     - name: Run OrangeHRM Playwright tests
-      run: npx playwright test --config=OrangeHRM/orangehrm.playwright.config.ts
+      run: npx playwright test --config=Playwright/OrangeHRM/orangehrm.playwright.config.ts --reporter=html,json --reporter-json-output-file=Playwright/OrangeHRM/test-results/results.json
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:
         name: orangehrm-playwright-report
-        path: OrangeHRM/playwright-report/
+        path: Playwright/OrangeHRM/playwright-report/
+        retention-days: 30
+    - uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() }}
+      with:
+        name: orangehrm-test-results-json
+        path: Playwright/OrangeHRM/test-results/results.json
+        retention-days: 30
+
+  test-cypress:
+    name: Cypress E2E Tests
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: lts/*
+    - name: Install dependencies
+      run: npm ci
+    - name: Install Cypress binary
+      run: npx cypress install
+    - name: Run Cypress tests
+      run: npx cypress run --config-file Cypress/cypress.config.ts
+    - uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() }}
+      with:
+        name: cypress-screenshots
+        path: Cypress/cypress/screenshots/
+        retention-days: 30
+    - uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() }}
+      with:
+        name: cypress-videos
+        path: Cypress/cypress/videos/
         retention-days: 30

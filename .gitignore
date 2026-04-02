@@ -10,17 +10,22 @@ node_modules/
 /playwright/.cache/
 /playwright/.auth/
 
-# SauceDemo app artifacts
-/saucedemo/test-results/
-!/saucedemo/test-results/*.md
-/saucedemo/playwright-report/
-/saucedemo/.auth/
+# Playwright/saucedemo app artifacts
+/Playwright/saucedemo/test-results/
+!/Playwright/saucedemo/test-results/*.md
+/Playwright/saucedemo/playwright-report/
+/Playwright/saucedemo/.auth/
 
-# OrangeHRM artifacts
-/OrangeHRM/playwright-report/
-/OrangeHRM/test-results/
-!/OrangeHRM/test-results/*.md
-/OrangeHRM/.auth/
+# Playwright/OrangeHRM artifacts
+/Playwright/OrangeHRM/playwright-report/
+/Playwright/OrangeHRM/test-results/
+!/Playwright/OrangeHRM/test-results/*.md
+/Playwright/OrangeHRM/.auth/
+
+# Cypress artifacts
+/Cypress/cypress/videos/
+/Cypress/cypress/screenshots/
+/Cypress/cypress/downloads/
 
 # Secrets — never commit credentials
 .vscode/mcp.json
