@@ -66,8 +66,9 @@ jobs:
             exit 1
           fi
 
+          unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
-          HTTP_CODE=$(curl -s -o /tmp/jira_response.json -w "%{http_code}" \
+          HTTP_CODE=$(curl --noproxy '*' -s -o /tmp/jira_response.json -w "%{http_code}" \
             -H "Authorization: Basic $AUTH" \
             -H "Accept: application/json" \
             "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY?fields=summary,description,status,labels")
@@ -112,10 +113,11 @@ jobs:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
+          unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
 
           # Fetch full description (ATC text lives here)
-          HTTP_CODE=$(curl -s -o /tmp/jira_desc.json -w "%{http_code}" \
+          HTTP_CODE=$(curl --noproxy '*' -s -o /tmp/jira_desc.json -w "%{http_code}" \
             -H "Authorization: Basic $AUTH" \
             -H "Accept: application/json" \
             "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY?fields=description")
@@ -162,7 +164,7 @@ jobs:
             'Story description:' \
             "$DESC")
 
-          RESPONSE=$(curl -sf https://api.openai.com/v1/chat/completions \
+          RESPONSE=$(curl --noproxy '*' -sf https://api.openai.com/v1/chat/completions \
             -H "Authorization: Bearer $OPENAI_API_KEY" \
             -H "Content-Type: application/json" \
             -d "{
@@ -196,6 +198,7 @@ jobs:
           ISSUES: ${{ steps.ac_review.outputs.ISSUES }}
           SUGGESTIONS: ${{ steps.ac_review.outputs.SUGGESTIONS }}
         run: |
+          unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
 
           # Convert pipe-delimited text into a JSON array of ADF listItem nodes.
@@ -242,7 +245,7 @@ jobs:
             }
             ')
 
-          curl -sf -X POST \
+          curl --noproxy '*' -sf -X POST \
             -H "Authorization: Basic $AUTH" \
             -H "Content-Type: application/json" \
             "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY/comment" \
@@ -254,9 +257,10 @@ jobs:
         env:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
         run: |
+          unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
           # Transition back to In Progress (ID 21)
-          curl -sf -X POST \
+          curl --noproxy '*' -sf -X POST \
             -H "Authorization: Basic $AUTH" \
             -H "Content-Type: application/json" \
             "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY/transitions" \
@@ -327,8 +331,9 @@ jobs:
         env:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
         run: |
+          unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
-          curl -sf -X POST \
+          curl --noproxy '*' -sf -X POST \
             -H "Authorization: Basic $AUTH" \
             -H "Content-Type: application/json" \
             "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY/transitions" \
@@ -342,8 +347,9 @@ jobs:
           BRANCH: ${{ steps.branch.outputs.BRANCH }}
           GH_ISSUE_URL: ${{ steps.gh_issue.outputs.ISSUE_URL }}
         run: |
+          unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
-          curl -sf -X POST \
+          curl --noproxy '*' -sf -X POST \
             -H "Authorization: Basic $AUTH" \
             -H "Content-Type: application/json" \
             "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY/comment" \
