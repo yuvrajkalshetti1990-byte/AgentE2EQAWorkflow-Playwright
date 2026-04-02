@@ -26,6 +26,12 @@ jobs:
         name: saucedemo-playwright-report
         path: Playwright/saucedemo/playwright-report/
         retention-days: 30
+    - uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() }}
+      with:
+        name: saucedemo-test-results-json
+        path: Playwright/saucedemo/test-results/results.json
+        retention-days: 30
 
   test-orangehrm:
     name: OrangeHRM E2E Tests
@@ -50,4 +56,10 @@ jobs:
       with:
         name: orangehrm-playwright-report
         path: Playwright/OrangeHRM/playwright-report/
+        retention-days: 30
+    - uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() }}
+      with:
+        name: orangehrm-test-results-json
+        path: Playwright/OrangeHRM/test-results/results.json
         retention-days: 30
