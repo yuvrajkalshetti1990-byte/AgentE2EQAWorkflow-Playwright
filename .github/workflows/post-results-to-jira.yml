@@ -136,8 +136,9 @@ jobs:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
           ISSUE_KEY: ${{ steps.extract.outputs.ISSUE_KEY }}
         run: |
+          unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+          HTTP_STATUS=$(curl --noproxy '*' -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: Basic $AUTH" \
             -H "Accept: application/json" \
             "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY")
@@ -157,8 +158,9 @@ jobs:
           BRANCH: ${{ steps.extract.outputs.BRANCH }}
           WORKFLOW: ${{ steps.result.outputs.WORKFLOW }}
         run: |
+          unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
-          curl -sf -X POST \
+          curl --noproxy '*' -sf -X POST \
             -H "Authorization: Basic $AUTH" \
             -H "Content-Type: application/json" \
             "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY/comment" \
@@ -201,13 +203,15 @@ jobs:
       - name: Transition Jira to Done (on success)
         if: >
           steps.verify_jira.outputs.JIRA_EXISTS == 'true' &&
-          github.event.workflow_run.conclusion == 'success'
+          github.event.workflow_run.conclusion == 'success' &&
+          steps.download.outputs.has_counts == 'true'
         env:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
           ISSUE_KEY: ${{ steps.extract.outputs.ISSUE_KEY }}
         run: |
+          unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
-          HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+          HTTP=$(curl --noproxy '*' -s -o /dev/null -w "%{http_code}" -X POST \
             -H "Authorization: Basic $AUTH" \
             -H "Content-Type: application/json" \
             "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY/transitions" \
@@ -219,7 +223,9 @@ jobs:
           fi
 
       - name: Open PR into dev (on success)
-        if: github.event.workflow_run.conclusion == 'success'
+        if: >
+          github.event.workflow_run.conclusion == 'success' &&
+          steps.download.outputs.has_counts == 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           BRANCH: ${{ steps.extract.outputs.BRANCH }}
