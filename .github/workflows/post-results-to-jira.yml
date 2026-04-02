@@ -230,21 +230,14 @@ jobs:
             exit 0
           fi
 
+          printf '## Automated test PR\n\nThis PR was created automatically after all CI tests passed on branch `%s`.\n\n**Jira story:** [%s](%s/browse/%s)\n\n### Checklist\n- [x] All CI jobs passed\n- [x] Jira transitioned to Done\n- [ ] Peer review\n- [ ] Merge to dev\n' \
+            "$BRANCH" "$ISSUE_KEY" "$ATLASSIAN_BASE_URL" "$ISSUE_KEY" > /tmp/pr_body.md
+
           gh pr create \
             --base dev \
             --head "$BRANCH" \
-            --title "[$ISSUE_KEY] Automated tests — ready to merge" \
-            --body "## Automated test PR
-
-This PR was created automatically after all CI tests passed on branch \`$BRANCH\`.
-
-**Jira story:** [$ISSUE_KEY]($ATLASSIAN_BASE_URL/browse/$ISSUE_KEY)
-
-### Checklist
-- [x] All CI jobs passed
-- [x] Jira transitioned to Done
-- [ ] Peer review
-- [ ] Merge to dev" \
+            --title "[$ISSUE_KEY] Automated tests - ready to merge" \
+            --body-file /tmp/pr_body.md \
             --label "automated-qa"
           echo "PR created: $BRANCH -> dev"
 
