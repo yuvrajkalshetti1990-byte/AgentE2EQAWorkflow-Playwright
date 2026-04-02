@@ -109,7 +109,6 @@ jobs:
 
       - name: Review AC quality with OpenAI
         id: ac_review
-        continue-on-error: true
         env:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -179,14 +178,13 @@ jobs:
           echo "OpenAI HTTP status: $HTTP_CODE"
 
           if [[ "$HTTP_CODE" != "200" ]]; then
-            echo "ERROR: OpenAI API returned HTTP $HTTP_CODE"
+            echo "WARNING: OpenAI API returned HTTP $HTTP_CODE — proceeding with IMPROVE verdict"
             cat /tmp/openai_response.json
-            # Default to IMPROVE so pipeline continues even if OpenAI is unavailable
-            echo "SCORE=3.0"     >> "$GITHUB_OUTPUT"
+            echo "SCORE=N/A"   >> "$GITHUB_OUTPUT"
             echo "VERDICT=IMPROVE" >> "$GITHUB_OUTPUT"
-            echo "SUMMARY=AC review skipped (OpenAI unavailable — HTTP $HTTP_CODE). Pipeline continuing." >> "$GITHUB_OUTPUT"
-            echo "ISSUES="       >> "$GITHUB_OUTPUT"
-            echo "SUGGESTIONS="  >> "$GITHUB_OUTPUT"
+            echo "SUMMARY=⚠️ AC review could not be completed — OpenAI API returned HTTP $HTTP_CODE. Please review ACs manually before proceeding. Pipeline continuing with IMPROVE verdict." >> "$GITHUB_OUTPUT"
+            echo "ISSUES=• OpenAI API unavailable (HTTP $HTTP_CODE)" >> "$GITHUB_OUTPUT"
+            echo "SUGGESTIONS=• Retry by moving story back to Ready for QA once API is available" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -194,26 +192,26 @@ jobs:
 
           # Validate response is parseable JSON
           if ! echo "$RESPONSE" | jq empty 2>/dev/null; then
-            echo "ERROR: OpenAI returned non-JSON response:"
+            echo "WARNING: OpenAI returned non-JSON — proceeding with IMPROVE verdict"
             echo "$RESPONSE"
-            echo "SCORE=3.0"     >> "$GITHUB_OUTPUT"
+            echo "SCORE=N/A"   >> "$GITHUB_OUTPUT"
             echo "VERDICT=IMPROVE" >> "$GITHUB_OUTPUT"
-            echo "SUMMARY=AC review skipped (invalid OpenAI response). Pipeline continuing." >> "$GITHUB_OUTPUT"
-            echo "ISSUES="       >> "$GITHUB_OUTPUT"
-            echo "SUGGESTIONS="  >> "$GITHUB_OUTPUT"
+            echo "SUMMARY=⚠️ AC review could not be completed — OpenAI returned an unreadable response. Please review ACs manually. Pipeline continuing with IMPROVE verdict." >> "$GITHUB_OUTPUT"
+            echo "ISSUES=• OpenAI response was not valid JSON" >> "$GITHUB_OUTPUT"
+            echo "SUGGESTIONS=• Retry by moving story back to Ready for QA" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           # Extract and validate AI content field
           AI_CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
           if [[ -z "$AI_CONTENT" ]]; then
-            echo "ERROR: OpenAI response missing .choices[0].message.content"
+            echo "WARNING: OpenAI response missing content field — proceeding with IMPROVE verdict"
             echo "$RESPONSE" | jq .
-            echo "SCORE=3.0"     >> "$GITHUB_OUTPUT"
+            echo "SCORE=N/A"   >> "$GITHUB_OUTPUT"
             echo "VERDICT=IMPROVE" >> "$GITHUB_OUTPUT"
-            echo "SUMMARY=AC review skipped (empty OpenAI content). Pipeline continuing." >> "$GITHUB_OUTPUT"
-            echo "ISSUES="       >> "$GITHUB_OUTPUT"
-            echo "SUGGESTIONS="  >> "$GITHUB_OUTPUT"
+            echo "SUMMARY=⚠️ AC review could not be completed — OpenAI returned an empty response. Please review ACs manually. Pipeline continuing with IMPROVE verdict." >> "$GITHUB_OUTPUT"
+            echo "ISSUES=• OpenAI content field was empty" >> "$GITHUB_OUTPUT"
+            echo "SUGGESTIONS=• Retry by moving story back to Ready for QA" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
