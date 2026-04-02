@@ -215,8 +215,17 @@ jobs:
             exit 0
           fi
 
-          # Parse the JSON string returned by OpenAI
-          AI_JSON=$(echo "$AI_CONTENT" | jq . 2>/dev/null || echo "$AI_CONTENT")
+          # Strip markdown code fences OpenAI sometimes wraps JSON in (```json ... ```)
+          AI_CLEAN=$(echo "$AI_CONTENT" | sed 's/```json//g' | sed 's/```//g' | tr -d '\r' | sed '/^[[:space:]]*$/d')
+
+          # Parse — fallback to safe defaults if still unparseable
+          AI_JSON=$(echo "$AI_CLEAN" | jq . 2>/dev/null)
+          if [[ -z "$AI_JSON" || "$AI_JSON" == "null" ]]; then
+            echo "WARNING: Could not parse OpenAI content as JSON after stripping markdown. Raw content:"
+            echo "$AI_CONTENT"
+            AI_JSON='{"score":"3.0","verdict":"IMPROVE","summary":"AC review completed but response could not be parsed. Please review ACs manually.","issues":[],"suggestions":[]}'
+          fi
+
           SCORE=$(echo "$AI_JSON"    | jq -r '.score    // "3.0"')
           VERDICT=$(echo "$AI_JSON"  | jq -r '.verdict  // "IMPROVE"')
           SUMMARY=$(echo "$AI_JSON"  | jq -r '.summary  // "Review completed."')
