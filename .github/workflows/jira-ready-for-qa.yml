@@ -61,11 +61,24 @@ jobs:
         env:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
         run: |
+          if [[ -z "$ISSUE_KEY" ]]; then
+            echo "ERROR: ISSUE_KEY is empty. Ensure the Jira webhook sends client_payload.issue_key or use workflow_dispatch with issue_key input."
+            exit 1
+          fi
+
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
-          RESPONSE=$(curl -sf \
+          HTTP_CODE=$(curl -s -o /tmp/jira_response.json -w "%{http_code}" \
             -H "Authorization: Basic $AUTH" \
             -H "Accept: application/json" \
             "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY?fields=summary,description,status,labels")
+
+          if [[ "$HTTP_CODE" != "200" ]]; then
+            echo "ERROR: Jira API returned HTTP $HTTP_CODE for issue $ISSUE_KEY"
+            cat /tmp/jira_response.json
+            exit 1
+          fi
+
+          RESPONSE=$(cat /tmp/jira_response.json)
 
           SUMMARY=$(echo "$RESPONSE" | jq -r '.fields.summary')
           STATUS=$(echo "$RESPONSE" | jq -r '.fields.status.name')
@@ -102,10 +115,18 @@ jobs:
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
 
           # Fetch full description (ATC text lives here)
-          DESC=$(curl -sf \
+          HTTP_CODE=$(curl -s -o /tmp/jira_desc.json -w "%{http_code}" \
             -H "Authorization: Basic $AUTH" \
             -H "Accept: application/json" \
-            "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY?fields=description" \
+            "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY?fields=description")
+
+          if [[ "$HTTP_CODE" != "200" ]]; then
+            echo "ERROR: Jira description fetch returned HTTP $HTTP_CODE"
+            cat /tmp/jira_desc.json
+            exit 1
+          fi
+
+          DESC=$(cat /tmp/jira_desc.json \
             | jq -r '
                 def extract_text: . as $node |
                   if type == "array" then map(extract_text) | add // ""
