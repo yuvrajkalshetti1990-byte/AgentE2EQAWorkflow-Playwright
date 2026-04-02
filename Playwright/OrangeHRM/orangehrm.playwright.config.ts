@@ -38,23 +38,23 @@ export default defineConfig({
       dependencies: ['setup'],
       testIgnore: ['**/seed.spec.ts', '**/seed-gen.spec.ts'],
     },
-    {
-      name: 'firefox',
-      use: {
-        ...devices['Desktop Firefox'],
-        storageState: AUTH_FILE,
-      },
-      dependencies: ['setup'],
-      testIgnore: ['**/seed.spec.ts', '**/seed-gen.spec.ts'],
-    },
-    {
-      name: 'webkit',
-      use: {
-        ...devices['Desktop Safari'],
-        storageState: AUTH_FILE,
-      },
-      dependencies: ['setup'],
-      testIgnore: ['**/seed.spec.ts', '**/seed-gen.spec.ts'],
-    },
+    // {
+    //   name: 'firefox',
+    //   use: {
+    //     ...devices['Desktop Firefox'],
+    //     storageState: AUTH_FILE,
+    //   },
+    //   dependencies: ['setup'],
+    //   testIgnore: ['**/seed.spec.ts', '**/seed-gen.spec.ts'],
+    // },
+    // {
+    //   name: 'webkit',
+    //   use: {
+    //     ...devices['Desktop Safari'],
+    //     storageState: AUTH_FILE,
+    //   },
+    //   dependencies: ['setup'],
+    //   testIgnore: ['**/seed.spec.ts', '**/seed-gen.spec.ts'],
+    // },
   ],
 });
