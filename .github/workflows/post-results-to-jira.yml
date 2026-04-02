@@ -26,7 +26,7 @@ jobs:
 
     permissions:
       actions: read
-      contents: read
+      contents: write
       pull-requests: write
 
     steps:
@@ -227,7 +227,7 @@ jobs:
           github.event.workflow_run.conclusion == 'success' &&
           steps.download.outputs.has_counts == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BRANCH: ${{ steps.extract.outputs.BRANCH }}
           ISSUE_KEY: ${{ steps.extract.outputs.ISSUE_KEY }}
         run: |
