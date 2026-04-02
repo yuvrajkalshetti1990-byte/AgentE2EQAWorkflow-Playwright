@@ -1,0 +1,3 @@
+{
+  "example": "fixtures go here — static test data loaded via cy.fixture('example')"
+}
