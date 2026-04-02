@@ -136,34 +136,22 @@ jobs:
             exit 0
           fi
 
-          # Build OpenAI request
-          PROMPT="You are an expert QA engineer reviewing acceptance criteria (ACs) for test automation feasibility.
-
-Score the following Jira story description. Extract each AC and score it 1-5 on:
-- Specific (exact values/messages vs vague language)
-- Verifiable (clear pass/fail a script can assert vs 'should work')
-- Scoped (one behaviour vs compound)
-- Data-independent (works with test data vs requires specific live data)
-- UI-reachable (expressible through browser vs DB/API-only)
-
-Overall score = average of all individual AC averages.
-
-Verdict rules:
-- 4.0-5.0: AUTOMATE (ready as-is)
-- 3.0-3.9: IMPROVE (minor fixes needed, proceed with warnings)
-- 1.0-2.9: REWRITE (too vague, pipeline should be blocked)
-
-Return ONLY valid JSON in this exact format (no markdown, no explanation):
-{
-  \"score\": <number 1.0-5.0>,
-  \"verdict\": \"AUTOMATE|IMPROVE|REWRITE\",
-  \"summary\": \"<2-3 sentence overall assessment>\",
-  \"issues\": [\"<issue 1>\", \"<issue 2>\"],
-  \"suggestions\": [\"<suggestion 1>\", \"<suggestion 2>\"]
-}
-
-Story description:
-$DESC"
+          # Build OpenAI request — prompt written to a variable using printf to avoid YAML indentation issues
+          PROMPT=$(printf '%s\n\n%s\n%s\n%s\n%s\n%s\n\n%s\n\n%s\n%s\n%s\n%s\n\n%s\n\n%s\n%s\n' \
+            'You are an expert QA engineer reviewing acceptance criteria (ACs) for test automation feasibility.' \
+            'Score the following Jira story description. Extract each AC and score it 1-5 on:' \
+            '- Specific (exact values/messages vs vague language)' \
+            '- Verifiable (clear pass/fail a script can assert vs should work)' \
+            '- Scoped (one behaviour vs compound)' \
+            '- Data-independent (works with test data vs requires specific live data)' \
+            'Overall score = average of all individual AC averages.' \
+            'Verdict rules:' \
+            '- 4.0-5.0: AUTOMATE (ready as-is)' \
+            '- 3.0-3.9: IMPROVE (minor fixes needed, proceed with warnings)' \
+            '- 1.0-2.9: REWRITE (too vague, pipeline should be blocked)' \
+            'Return ONLY valid JSON: {"score":<1.0-5.0>,"verdict":"AUTOMATE|IMPROVE|REWRITE","summary":"<assessment>","issues":["<i1>"],"suggestions":["<s1>"]}' \
+            'Story description:' \
+            "$DESC")
 
           RESPONSE=$(curl -sf https://api.openai.com/v1/chat/completions \
             -H "Authorization: Bearer $OPENAI_API_KEY" \
