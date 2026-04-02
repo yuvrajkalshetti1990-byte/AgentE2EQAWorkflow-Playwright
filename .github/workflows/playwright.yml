@@ -19,12 +19,12 @@ jobs:
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
     - name: Run SauceDemo Playwright tests
-      run: npx playwright test --config=saucedemo/saucedemo.playwright.config.ts
+      run: npx playwright test --config=Playwright/saucedemo/saucedemo.playwright.config.ts
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:
         name: saucedemo-playwright-report
-        path: saucedemo/playwright-report/
+        path: Playwright/saucedemo/playwright-report/
         retention-days: 30
 
   test-orangehrm:
@@ -44,10 +44,10 @@ jobs:
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
     - name: Run OrangeHRM Playwright tests
-      run: npx playwright test --config=OrangeHRM/orangehrm.playwright.config.ts
+      run: npx playwright test --config=Playwright/OrangeHRM/orangehrm.playwright.config.ts
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:
         name: orangehrm-playwright-report
-        path: OrangeHRM/playwright-report/
+        path: Playwright/OrangeHRM/playwright-report/
         retention-days: 30
