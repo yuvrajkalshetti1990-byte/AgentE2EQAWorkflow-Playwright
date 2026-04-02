@@ -333,6 +333,8 @@ jobs:
             git checkout "$BRANCH"
           else
             git checkout -b "$BRANCH"
+            git push origin "$BRANCH"
+            echo "Branch $BRANCH pushed to remote"
           fi
 
           echo "BRANCH=$BRANCH" >> "$GITHUB_OUTPUT"
