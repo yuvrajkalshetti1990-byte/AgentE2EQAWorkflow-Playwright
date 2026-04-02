@@ -15,8 +15,8 @@ env:
   ATLASSIAN_CLOUD_ID: c2269322-6897-4ede-8e92-04b6edd6edf6
   ATLASSIAN_BASE_URL: https://yuvrajkalshetti1990.atlassian.net
   ATLASSIAN_EMAIL: yuvrajkalshetti1990@gmail.com
-  # Jira transition ID for "Done" — update if your workflow uses a different ID
-  JIRA_DONE_TRANSITION_ID: "31"
+  # Jira transition ID for "Done" (ID 52, confirmed via API)
+  JIRA_DONE_TRANSITION_ID: "52"
 
 jobs:
   report-to-jira:
