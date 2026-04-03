@@ -1,4 +1,4 @@
-// SCRUM-34 | Assignment 18: Mocking Network Responses (Negative UI Testing)
+// Jira: SCRUM-34 — Assignment 18: Mocking Network Responses (Negative UI Testing)
 // Concepts: cy.intercept() as a stub — short-circuits the real network call
 // Note: Uses jsonplaceholder.typicode.com via window.fetch() — self-contained, no UI dependency
 // @requiredFixtures: []

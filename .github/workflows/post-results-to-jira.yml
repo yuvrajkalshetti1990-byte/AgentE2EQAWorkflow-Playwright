@@ -74,6 +74,16 @@ jobs:
             const { execSync } = require('child_process');
             let totalPassed = 0, totalFailed = 0, totalSkipped = 0;
             let countsFound = false;
+            let reportArtifactUrl = '';
+
+            for (const artifact of artifacts.data.artifacts) {
+              // Capture the URL for any *-test-report-md artifact so we can link it from Jira
+              if (artifact.name.endsWith('-test-report-md') && !reportArtifactUrl) {
+                reportArtifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${runId}`;
+                console.log(`Found report artifact: ${artifact.name} → linking run at ${reportArtifactUrl}`);
+              }
+            }
+            core.setOutput('report_run_url', reportArtifactUrl);
 
             for (const artifact of artifacts.data.artifacts) {
               // Match any artifact that ends with -test-results-json
@@ -209,9 +219,18 @@ jobs:
           SHORT_SHA: ${{ steps.result.outputs.SHORT_SHA }}
           BRANCH: ${{ steps.extract.outputs.BRANCH }}
           WORKFLOW: ${{ steps.result.outputs.WORKFLOW }}
+          REPORT_RUN_URL: ${{ steps.download.outputs.report_run_url }}
         run: |
           unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
+
+          # Build the report link list item — only include if a report artifact was found
+          if [[ -n "$REPORT_RUN_URL" ]]; then
+            REPORT_ITEM="{ \"type\": \"listItem\", \"content\": [{ \"type\": \"paragraph\", \"content\": [{ \"type\": \"text\", \"text\": \"Test Execution Report: $REPORT_RUN_URL (download *-test-report-md artifact)\" }] }] },"
+          else
+            REPORT_ITEM=""
+          fi
+
           curl --noproxy '*' -sf -X POST \
             -H "Authorization: Basic $AUTH" \
             -H "Content-Type: application/json" \
@@ -244,7 +263,9 @@ jobs:
                     \"content\": [
                       { \"type\": \"listItem\", \"content\": [{ \"type\": \"paragraph\", \"content\": [{ \"type\": \"text\", \"text\": \"Branch: $BRANCH\" }] }] },
                       { \"type\": \"listItem\", \"content\": [{ \"type\": \"paragraph\", \"content\": [{ \"type\": \"text\", \"text\": \"Commit: $SHORT_SHA\" }] }] },
-                      { \"type\": \"listItem\", \"content\": [{ \"type\": \"paragraph\", \"content\": [{ \"type\": \"text\", \"text\": \"Run: $RUN_URL\" }] }] }
+                      { \"type\": \"listItem\", \"content\": [{ \"type\": \"paragraph\", \"content\": [{ \"type\": \"text\", \"text\": \"CI Run: $RUN_URL\" }] }] },
+                      $REPORT_ITEM
+                      { \"type\": \"listItem\", \"content\": [{ \"type\": \"paragraph\", \"content\": [{ \"type\": \"text\", \"text\": \"Full report: download *-test-report-md artifact from the CI run above\" }] }] }
                     ]
                   }
                 ]
@@ -311,22 +332,35 @@ jobs:
           BRANCH: ${{ steps.extract.outputs.BRANCH }}
           ISSUE_KEY: ${{ steps.extract.outputs.ISSUE_KEY }}
         run: |
-          # Check if a PR for this branch already exists
-          EXISTING=$(gh pr list --head "$BRANCH" --base dev --json number --jq '.[0].number' 2>/dev/null || echo "")
+          # Check if a PR for this branch already exists (handles race condition
+          # when both Cypress and Playwright post-results runs fire concurrently)
+          EXISTING=$(gh pr list --head "$BRANCH" --base dev --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
           if [[ -n "$EXISTING" ]]; then
-            echo "PR #$EXISTING already exists for $BRANCH -> dev, skipping"
+            echo "::notice::PR #$EXISTING already exists for $BRANCH -> dev, skipping"
             exit 0
           fi
 
           printf '## Automated test PR\n\nThis PR was created automatically after all CI tests passed on branch `%s`.\n\n**Jira story:** [%s](%s/browse/%s)\n\n### Checklist\n- [x] All CI jobs passed\n- [x] Jira transitioned to Done\n- [ ] Peer review\n- [ ] Merge to dev\n' \
             "$BRANCH" "$ISSUE_KEY" "$ATLASSIAN_BASE_URL" "$ISSUE_KEY" > /tmp/pr_body.md
 
-          gh pr create \
+          # Use || to gracefully handle concurrent creation (race condition between
+          # Cypress and Playwright post-results runs firing at the same time)
+          if gh pr create \
             --base dev \
             --head "$BRANCH" \
             --title "[$ISSUE_KEY] Automated tests - ready to merge" \
             --body-file /tmp/pr_body.md \
-            --label "automated-qa"
-          echo "::notice::PR created: ${BRANCH} → dev"
-          echo "PR created: $BRANCH -> dev"
+            --label "automated-qa" 2>/tmp/pr_create_err; then
+            echo "::notice::PR created: ${BRANCH} → dev"
+            echo "PR created: $BRANCH -> dev"
+          else
+            # Either PR was created by concurrent run, or a real error occurred
+            CONCURRENT=$(gh pr list --head "$BRANCH" --base dev --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+            if [[ -n "$CONCURRENT" ]]; then
+              echo "::notice::PR #$CONCURRENT was created by a concurrent run — skipping"
+            else
+              echo "::error::Failed to create PR: $(cat /tmp/pr_create_err)"
+              exit 1
+            fi
+          fi
 

@@ -10,7 +10,7 @@ All work inside this folder uses the Cypress framework. Apply the rules below fo
 
 | Task | Agent | Command |
 |------|-------|---------|
-| Create a test plan | `@playwright-test-planner` | `@playwright-test-planner <story or URL>` |
+| Create a test plan | `@cypress-test-planner` | `@cypress-test-planner <story or URL>` |
 | Generate a new `.cy.ts` test file | `@cypress-test-generator` | `@cypress-test-generator <test plan item>` |
 | Fix a failing test | `@cypress-test-healer` | `@cypress-test-healer <error or test file>` |
 
@@ -52,7 +52,7 @@ When adding tests for a new app to Cypress:
 
 4. Add any shared fixtures to `qa-framework/frameworks/cypress/fixtures/`
 
-5. Use `@playwright-test-planner` to generate the test plan, then `@cypress-test-generator` per scenario.
+5. Use `@cypress-test-planner` to generate the test plan, then `@cypress-test-generator` per scenario.
 
 ## Run Commands
 

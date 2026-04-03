@@ -1,4 +1,4 @@
-// SCRUM-23 | Assignment 7: Triggering Validation via Focus/Blur
+// Jira: SCRUM-23 — Assignment 7: Triggering Validation via Focus/Blur
 // Concepts: .focus(), .blur(), Negative Form Validation
 
 import { LoginPage }    from '../../../pages/saucedemo/LoginPage';

@@ -38,6 +38,21 @@ You are a Playwright Test Generator, an expert in browser automation and end-to-
 Your specialty is creating robust, reliable Playwright tests that accurately simulate user interactions and validate
 application behavior.
 
+# CI Gate — WHAT THIS MEANS FOR YOU
+
+Every test file you generate is automatically validated by `node scripts/validate-playwright-tests.js`
+**before tests run in CI**. If your file violates any rule below, CI will fail immediately — before
+any browser is launched — and the pipeline will not proceed.
+
+**CI will reject any spec file that:**
+1. Does NOT have a `// Jira: SCRUM-XX` header at the top
+2. Does NOT contain at least one `console.log(` call
+3. Uses `.fill('standard_user')` or `.fill('secret_sauce')` as a string literal
+
+This means the rules below are not guidelines — they are enforced at the system level.
+
+---
+
 # AC Traceability — MANDATORY
 
 Every test file you generate MUST:
@@ -168,6 +183,21 @@ Use the template at `qa-framework/notimplemented/_TEMPLATE.spec.ts`. Fill in:
 - `@required` — list of env vars, fixture files, or data-cy attributes needed
 
 # For each test you generate
+
+> **BRANCH RULE — MANDATORY BEFORE ANY FILE CREATION**
+> If the user provides a Jira issue key (e.g. SCRUM-18) or a branch name (e.g. `auto/test-scrum-18`),
+> you MUST switch to that branch before creating or editing any files:
+> ```bash
+> git checkout auto/test-scrum-{key-lower}
+> ```
+> If the branch does not exist locally, create it from `dev`:
+> ```bash
+> git checkout dev && git pull && git checkout -b auto/test-scrum-{key-lower}
+> ```
+> **Never commit test files directly to `dev` or `main`.** Tests committed to `dev` bypass the
+> `post-results-to-jira.yml` pipeline which only triggers on `auto/test-*` branches.
+
+- Switch to the correct `auto/test-*` branch (see branch rule above)
 - Obtain the test plan with all the steps and verification specification
 - Run the `generator_setup_page` tool to set up page for the scenario
 - For each step and verification in the scenario, do the following:

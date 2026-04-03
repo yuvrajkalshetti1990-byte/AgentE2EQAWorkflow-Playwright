@@ -2,6 +2,7 @@
   "extends": "../../../tsconfig.json",
   "compilerOptions": {
     "types": ["node", "cypress"],
+    "lib": ["ES2020", "DOM"],
     "ignoreDeprecations": "5.0"
   },
   "include": ["./**/*.ts"],

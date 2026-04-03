@@ -1,19 +1,25 @@
-// spec: specs/saucedemo-checkout-test-plan.md
-// seed: tests/seed.spec.ts
+// Jira: SCRUM-14 — SauceDemo Checkout E2E Tests
+// AC-10: Order Overview page displays payment info, shipping info, and accurate price summary
 
 import { test, expect } from '@playwright/test';
 
-test.describe('Order Overview (AC3)', () => {
+test.describe('Order Overview', () => {
   test.beforeEach(async ({ page }) => {
-    // Navigate to login page and authenticate
+    const username = process.env.SAUCE_USERNAME ?? 'standard_user';
+    const password = process.env.SAUCE_PASSWORD ?? 'secret_sauce';
+    console.log('[STEP] Logging in as %s', username);
     await page.goto('https://www.saucedemo.com');
-    await page.locator('[data-test="username"]').fill('standard_user');
-    await page.locator('[data-test="password"]').fill('secret_sauce');
+    console.log('[NAV] url=%s title=%s', page.url(), await page.title());
+    await page.locator('[data-test="username"]').fill(username);
+    await page.locator('[data-test="password"]').fill(password);
     await page.locator('[data-test="login-button"]').click();
+    console.log('[ASSERT] Expected URL to contain /inventory.html, got: %s', page.url());
     await expect(page).toHaveURL(/inventory\.html/);
   });
 
+  // AC-10: Order Overview page displays payment info, shipping info, and accurate price summary
   test('TC-OVW-01: Overview page displays payment info, shipping info, and price summary', async ({ page }) => {
+    console.log('[STEP] Starting TC-OVW-01: overview page details verification');
     // 1. Add Sauce Labs Fleece Jacket ($49.99) to cart
     await page.locator('[data-test="add-to-cart-sauce-labs-fleece-jacket"]').click();
     await expect(page.locator('.shopping_cart_badge')).toHaveText('1');
@@ -48,7 +54,9 @@ test.describe('Order Overview (AC3)', () => {
     await expect(page.locator('.summary_total_label')).toContainText('Total: $53.99');
 
     // 9. Verify Cancel and Finish buttons are visible and clickable
+    console.log('[ASSERT] Verifying Cancel and Finish buttons are visible');
     await expect(page.locator('[data-test="cancel"]')).toBeVisible();
     await expect(page.locator('[data-test="finish"]')).toBeVisible();
+    console.log('[NAV] Final url: %s', page.url());
   });
 });

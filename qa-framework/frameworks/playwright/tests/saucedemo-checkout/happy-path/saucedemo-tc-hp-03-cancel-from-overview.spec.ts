@@ -1,20 +1,25 @@
-// spec: specs/saucedemo-checkout-test-plan.md
-// seed: tests/seed.spec.ts
+// Jira: SCRUM-14 — SauceDemo Checkout E2E Tests
+// AC-4: Cancel from the Checkout Overview page returns user to inventory with cart preserved
 
 import { test, expect } from '@playwright/test';
 
 test.describe('Happy Path – Full Checkout Flow', () => {
   test.beforeEach(async ({ page }) => {
-    // Navigate to login page and authenticate
+    const username = process.env.SAUCE_USERNAME ?? 'standard_user';
+    const password = process.env.SAUCE_PASSWORD ?? 'secret_sauce';
+    console.log('[STEP] Logging in as %s', username);
     await page.goto('https://www.saucedemo.com');
-    await page.locator('[data-test="username"]').fill('standard_user');
-    await page.locator('[data-test="password"]').fill('secret_sauce');
+    console.log('[NAV] url=%s title=%s', page.url(), await page.title());
+    await page.locator('[data-test="username"]').fill(username);
+    await page.locator('[data-test="password"]').fill(password);
     await page.locator('[data-test="login-button"]').click();
+    console.log('[ASSERT] Expected URL to contain /inventory.html, got: %s', page.url());
     await expect(page).toHaveURL(/inventory\.html/);
   });
 
+  // AC-4: Cancel from the Checkout Overview page returns user to inventory with cart preserved
   test('TC-HP-03: Checkout cancellation from the Overview page', async ({ page }) => {
-    // 1. Add Sauce Labs Onesie to cart
+    console.log('[STEP] Starting TC-HP-03: cancel from checkout overview');
     await page.locator('[data-test="add-to-cart-sauce-labs-onesie"]').click();
     await expect(page.locator('.shopping_cart_badge')).toHaveText('1');
 
@@ -49,6 +54,8 @@ test.describe('Happy Path – Full Checkout Flow', () => {
     await expect(page.locator('.shopping_cart_badge')).toHaveText('1');
 
     // 10. Verify the Onesie is still in the cart by checking its Remove button is shown
+    console.log('[ASSERT] Verifying cart still contains item after cancel (cart not cleared)');
     await expect(page.locator('[data-test="remove-sauce-labs-onesie"]')).toBeVisible();
+    console.log('[NAV] Final url: %s', page.url());
   });
 });
