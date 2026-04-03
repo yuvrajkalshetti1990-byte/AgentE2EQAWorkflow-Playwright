@@ -97,34 +97,31 @@ jobs:
 
     - name: "Resilience lint: no raw cy.visit() or cy.request()"
       run: |
-        python3 - <<'EOF'
-import sys, re, glob, pathlib
-
-RAW      = re.compile(r'\bcy\.(visit|request)\(')
-COMMENT  = re.compile(r'^\s*//')
-
-violations = []
-globs = [
-  'Cypress/cypress/e2e/**/*.cy.ts',
-  'Cypress/cypress/e2e/**/*.ts',
-  'Cypress/cypress/pages/**/*.ts',
-]
-
-for g in globs:
-  for f in glob.glob(g, recursive=True):
-    for i, line in enumerate(pathlib.Path(f).read_text(encoding='utf-8').splitlines(), 1):
-      if RAW.search(line) and not COMMENT.match(line):
-        violations.append(f'{f}:{i}:  {line.strip()}')
-
-if violations:
-  print('LINT FAIL: Raw cy.visit() or cy.request() detected.')
-  print('Use cy.safeVisit() and cy.apiRequest() instead.')
-  print()
-  for v in violations:
-    print(v)
-  sys.exit(1)
-print('Resilience lint: OK — no raw cy.visit() or cy.request() found.')
-EOF
+        node -e "
+        const fs = require('fs'), path = require('path');
+        const violations = [];
+        function scan(dir) {
+          if (!fs.existsSync(dir)) return;
+          for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, e.name);
+            if (e.isDirectory()) { scan(full); continue; }
+            if (!e.name.endsWith('.ts')) continue;
+            fs.readFileSync(full, 'utf8').split('\n').forEach((line, i) => {
+              if (/\bcy\.(visit|request)\(/.test(line) && !/^\s*\/\//.test(line))
+                violations.push(full + ':' + (i + 1) + ':  ' + line.trim());
+            });
+          }
+        }
+        scan('Cypress/cypress/e2e');
+        scan('Cypress/cypress/pages');
+        if (violations.length) {
+          console.error('LINT FAIL: Raw cy.visit() or cy.request() detected.');
+          console.error('Use cy.safeVisit() and cy.apiRequest() instead.\n');
+          violations.forEach(v => console.error(v));
+          process.exit(1);
+        }
+        console.log('Resilience lint: OK — no raw cy.visit() or cy.request() found.');
+        "
 
     - name: Run Cypress tests
       if: steps.count_specs.outputs.SPEC_COUNT != '0'
