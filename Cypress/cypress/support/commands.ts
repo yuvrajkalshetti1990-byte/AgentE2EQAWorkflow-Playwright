@@ -46,16 +46,13 @@ Cypress.Commands.add('safeVisit', (url: string, options?: Partial<Cypress.VisitO
 Cypress.Commands.add('apiRequest', (options: Partial<Cypress.RequestOptions> & { url: string }) => {
   const apiKey = (Cypress.env('REQRES_API_KEY') as string | undefined) || 'reqres-free-v1';
   cy.log(`[apiRequest] ${options.method ?? 'GET'} ${options.url} (key=${apiKey.slice(0, 8)}...)`);
-  cy.request({
+  return cy.request({
     failOnStatusCode: false,
     ...options,
     headers: {
       'x-api-key': apiKey,
       ...(options.headers ?? {}),
     },
-  }).then(response => {
-    cy.log(`[apiRequest] Status: ${response.status} | Body length: ${JSON.stringify(response.body).length}`);
-    return response;
   });
 });
 

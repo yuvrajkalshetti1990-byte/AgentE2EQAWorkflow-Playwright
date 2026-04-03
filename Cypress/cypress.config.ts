@@ -36,9 +36,9 @@ const REQUIRED_FIXTURES: Record<string, string | object> = {
   ],
   'test.txt':         'This is a sample text file used for the Cypress file upload assignment.\n',
   'checkout-user.json': {
-    firstName: 'Test',
-    lastName:  'User',
-    zipCode:   '12345',
+    firstName:  'Test',
+    lastName:   'User',
+    postalCode: '12345',
   },
 };
 
@@ -70,23 +70,17 @@ export default defineConfig({
     // Safe defaults for env vars — overridden by cypress.env.json and CYPRESS_* secrets.
     env: ENV_DEFAULTS,
 
-    // Mochawesome JSON reporter — consumed by post-results-to-jira.yml
-    // Stats are written to Cypress/cypress/reports/mochawesome.json
-    reporter: 'cypress-mochawesome-reporter',
+    // Built-in Mocha JSON reporter — no extra package needed.
+    // Outputs Cypress/cypress/reports/results.json which post-results-to-jira.yml
+    // looks for (stats.passes / stats.failures / stats.pending).
+    reporter: 'json',
     reporterOptions: {
-      reportDir:    path.join(__dirname, 'cypress/reports'),
-      reportFilename: 'mochawesome',
-      overwrite:    true,
-      html:         true,
-      json:         true,
-      embeddedScreenshots: false,
-      inlineAssets: false,
+      output: path.join(__dirname, 'cypress/reports/results.json'),
     },
 
     setupNodeEvents(on, config) {
-      // ── 1. Wire up Mochawesome reporter hooks ────────────────────────────
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      require('cypress-mochawesome-reporter/plugin')(on);
+      // ── 1. Ensure reports directory exists for json reporter output ──────
+      fs.mkdirSync(path.join(__dirname, 'cypress', 'reports'), { recursive: true });
 
       // ── 2. Merge ENV_DEFAULTS under runtime config (CYPRESS_* vars win) ─
       for (const [key, val] of Object.entries(ENV_DEFAULTS)) {
