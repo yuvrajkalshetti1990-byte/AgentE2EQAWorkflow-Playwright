@@ -101,3 +101,16 @@ Using them will trigger Playwright strict mode violations and cause the generato
 - The Employee ID field does not have a reliable class-based selector during form fill — capture it via `page.locator('label:has-text("Employee Id") + div input').inputValue()`  
 - The "Create Login Details" toggle is a switch input — use `page.getByLabel('Create Login Details')` or `page.locator('.orangehrm-switch-wrapper').getByRole('checkbox')`
 - Success toast auto-dismisses within ~3 s — assert it immediately after navigation, or assert URL + heading instead
+- **Delete/Edit buttons in table rows**: scope to the row first using `hasText`, never use a raw snapshot `ref`:
+  ```ts
+  // Delete a specific employee row
+  await page.locator('tr', { hasText: 'EmployeeName' }).getByRole('button', { name: /delete/i }).click();
+  // Confirm the dialog
+  await page.getByRole('button', { name: 'Yes, Delete' }).click();
+  ```
+
+## Snapshot Refs — Never Use as Locators
+
+`ref` values (e.g. `e1596`) from Playwright MCP snapshots are ephemeral and valid only for that
+snapshot. Using them in a subsequent tool call silently fails and causes infinite retry loops.
+Always convert snapshot refs into stable semantic selectors before using them.

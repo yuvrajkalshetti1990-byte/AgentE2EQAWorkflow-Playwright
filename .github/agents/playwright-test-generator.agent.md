@@ -102,14 +102,35 @@ cause a Playwright strict mode violation, making the test loop:
 - `.oxd-input` or `.oxd-input--active` — use `getByLabel('...')` or scope to the specific form section
 - `.last()` on a class-based locator without a label — unreliable; take a snapshot first to identify the element
 
+# Snapshot Refs — NEVER USE
+
+`ref` values (e.g. `"e1596"`) returned in Playwright MCP snapshots are **ephemeral**.
+They are valid only for that single snapshot response. Reusing them in any subsequent
+`browser_click`, `browser_hover`, or any other tool call will silently fail or target
+the wrong element — causing an infinite retry loop.
+
+**NEVER pass a raw `ref` as the sole locator for a click or interaction.**
+Always derive a stable semantic selector from the snapshot instead:
+
+| Action button | Stable selector |
+|--------------|----------------|
+| Delete row by employee name | `page.locator('tr', { hasText: 'EmployeeName' }).getByRole('button', { name: /delete/i })` |
+| Edit row by employee name | `page.locator('tr', { hasText: 'EmployeeName' }).getByRole('button', { name: /edit/i })` |
+| Any icon-only button in a row | Scope to the row using `hasText`, then use `nth(0)` with a comment explaining which button |
+| Confirm delete in dialog | `page.getByRole('button', { name: 'Yes, Delete' })` or `page.getByRole('button', { name: /confirm/i })` |
+
+If a snapshot ref is all you have, take a **fresh snapshot** and find a semantic locator
+before proceeding.
+
 # Loop Prevention — MANDATORY
 
-If a `browser_evaluate` call fails (strict mode violation, timeout, or selector not found):
-1. **DO NOT retry with the same or similar code immediately.**
+If any tool call fails (strict mode violation, timeout, selector not found, or silent no-op):
+1. **DO NOT retry with the same input immediately.**
 2. First call `browser_snapshot` to inspect the current DOM state.
-3. Identify a unique, unambiguous selector for the target element from the snapshot.
+3. Identify a unique, unambiguous, semantic selector from the snapshot.
 4. Only then retry with the corrected selector.
 
 Strict mode violations always mean the locator matched more than one element.
 Timeouts on `waitForURL` always mean the preceding action (usually a submit click) did not fire.
-Both require a snapshot to diagnose — never retry blind.
+A silent no-op (action returns success but nothing changed) usually means a stale ref was used.
+All three require a fresh snapshot to diagnose — never retry blind.
