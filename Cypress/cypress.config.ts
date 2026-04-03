@@ -28,18 +28,21 @@ const KNOWN_BASE_URLS: Record<string, string> = {
 };
 
 // Required fixtures — created automatically if missing.
+// Add new fixture defaults here when the generator creates specs that use them.
 const REQUIRED_FIXTURES: Record<string, string | object> = {
   'users.json': [
-    { username: 'standard_user',  password: 'secret_sauce', expectedStatus: 'success' },
-    { username: 'locked_out_user', password: 'secret_sauce', expectedStatus: 'failure' },
-    { username: 'problem_user',    password: 'secret_sauce', expectedStatus: 'success' },
+    { username: 'standard_user',         password: 'secret_sauce', expectedStatus: 'success' },
+    { username: 'locked_out_user',        password: 'secret_sauce', expectedStatus: 'failure' },
+    { username: 'problem_user',           password: 'secret_sauce', expectedStatus: 'success' },
+    { username: 'performance_glitch_user',password: 'secret_sauce', expectedStatus: 'success' },
   ],
-  'test.txt':         'This is a sample text file used for the Cypress file upload assignment.\n',
+  'test.txt': 'This is a sample text file used for the Cypress file upload assignment.\n',
   'checkout-user.json': {
     firstName:  'Test',
     lastName:   'User',
     postalCode: '12345',
   },
+  'example.json': { example: true },
 };
 
 export default defineConfig({
@@ -79,45 +82,70 @@ export default defineConfig({
     },
 
     setupNodeEvents(on, config) {
-      // ── 1. Ensure reports directory exists for json reporter output ──────
+      // ── 1. Ensure reports and fixtures directories exist ─────────────────
       fs.mkdirSync(path.join(__dirname, 'cypress', 'reports'), { recursive: true });
+      const fixturesDir = path.join(__dirname, 'cypress', 'fixtures');
+      fs.mkdirSync(fixturesDir, { recursive: true });
 
       // ── 2. Merge ENV_DEFAULTS under runtime config (CYPRESS_* vars win) ─
       for (const [key, val] of Object.entries(ENV_DEFAULTS)) {
         if (!config.env[key]) {
           config.env[key] = val;
-          console.log(`[preflight] env.${key} not set — using default`);
         }
       }
 
-      // ── 3. Auto-create missing fixture files ─────────────────────────────
-      const fixturesDir = path.join(__dirname, 'cypress', 'fixtures');
-      fs.mkdirSync(fixturesDir, { recursive: true });
+      // ── 3. Global upfront fixture creation ───────────────────────────────
+      // Phase A: always create the known REQUIRED_FIXTURES defaults.
       for (const [filename, content] of Object.entries(REQUIRED_FIXTURES)) {
-        const filePath = path.join(fixturesDir, filename);
-        if (!fs.existsSync(filePath)) {
+        const fp = path.join(fixturesDir, filename);
+        if (!fs.existsSync(fp)) {
           const body = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
-          fs.writeFileSync(filePath, body, 'utf8');
+          fs.writeFileSync(fp, body, 'utf8');
           console.log(`[preflight] Created missing fixture: ${filename}`);
         }
       }
 
-      // ── 4. Log base URL reachability warnings (non-blocking) ─────────────
-      // We only warn — not block — because CI nodes may not have external access
-      // during setup phase.  Tests that hit unreachable URLs are caught at runtime.
-      console.log('[preflight] Known external URLs:');
-      for (const [name, url] of Object.entries(KNOWN_BASE_URLS)) {
-        console.log(`  ${name}: ${url}`);
+      // Phase B: scan ALL spec files for @requiredFixtures metadata and
+      //          create anything declared there that wasn't in REQUIRED_FIXTURES.
+      function scanSpecsForFixtures(dir: string): void {
+        if (!fs.existsSync(dir)) return;
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) { scanSpecsForFixtures(full); continue; }
+          if (!entry.name.endsWith('.ts')) continue;
+          const content = fs.readFileSync(full, 'utf-8');
+          const m = content.match(/@requiredFixtures:\s*(\[[^\]]+\])/);
+          if (!m) continue;
+          let names: string[];
+          try { names = JSON.parse(m[1]) as string[]; } catch { continue; }
+          for (const name of names) {
+            const fp2 = path.join(fixturesDir, name);
+            if (fs.existsSync(fp2)) continue;
+            fs.mkdirSync(path.dirname(fp2), { recursive: true });
+            const def = REQUIRED_FIXTURES[name];
+            if (def !== undefined) {
+              fs.writeFileSync(fp2, typeof def === 'string' ? def : JSON.stringify(def, null, 2), 'utf8');
+            } else if (name.endsWith('.json')) {
+              fs.writeFileSync(fp2, '{}', 'utf8');
+            } else {
+              fs.writeFileSync(fp2, '', 'utf8');
+            }
+            console.log(`[preflight] Created @requiredFixtures fixture: ${name} (from ${entry.name})`);
+          }
+        }
       }
+      scanSpecsForFixtures(path.join(__dirname, 'cypress', 'e2e'));
 
-      // ── 5. Log resolved env key set (values redacted) ────────────────────
+      // ── 4. Log resolved env key set ──────────────────────────────────────
       const envKeys = Object.keys(config.env);
       console.log(`[preflight] Resolved env vars (${envKeys.length}): ${envKeys.join(', ')}`);
+      console.log(`[preflight] Fixtures dir: ${fixturesDir}`);
+      console.log(`[preflight] Fixture files: ${fs.readdirSync(fixturesDir).join(', ')}`);
 
-      // ── 6. Per-spec fixture task ──────────────────────────────────────────
-      // Specs that declare  // @requiredFixtures: ['a.json', 'b.json']
-      // get missing fixtures auto-created before the spec runs.
-      // Called from e2e.ts before() hook via cy.task('ensureFixtures', ...).
+      // ── 5. Per-spec fixture task ──────────────────────────────────────────
+      // Secondary safety net: called by e2e.ts before() for each spec so
+      // fixtures declared in @requiredFixtures are guaranteed to exist even
+      // if the global scan somehow missed them (e.g. dynamic imports).
       on('task', {
         ensureFixtures({ specFile }: { specFile: string }): null {
           const absSpec = path.isAbsolute(specFile)
@@ -130,29 +158,21 @@ export default defineConfig({
           if (!match) return null;
 
           let fixtures: string[];
-          try {
-            fixtures = JSON.parse(match[1]) as string[];
-          } catch {
-            return null;
-          }
+          try { fixtures = JSON.parse(match[1]) as string[]; } catch { return null; }
 
-          const fixtureDir = path.join(__dirname, 'cypress', 'fixtures');
           for (const name of fixtures) {
-            const fp = path.join(fixtureDir, name);
+            const fp = path.join(fixturesDir, name);
             if (fs.existsSync(fp)) continue;
             fs.mkdirSync(path.dirname(fp), { recursive: true });
-            const knownDefault = REQUIRED_FIXTURES[name];
-            if (knownDefault !== undefined) {
-              const body = typeof knownDefault === 'string'
-                ? knownDefault
-                : JSON.stringify(knownDefault, null, 2);
-              fs.writeFileSync(fp, body, 'utf8');
+            const def = REQUIRED_FIXTURES[name];
+            if (def !== undefined) {
+              fs.writeFileSync(fp, typeof def === 'string' ? def : JSON.stringify(def, null, 2), 'utf8');
             } else if (name.endsWith('.json')) {
               fs.writeFileSync(fp, '{}', 'utf8');
             } else {
               fs.writeFileSync(fp, '', 'utf8');
             }
-            console.log(`[ensureFixtures] Created missing fixture: ${name}`);
+            console.log(`[ensureFixtures] Created: ${name}`);
           }
           return null;
         },

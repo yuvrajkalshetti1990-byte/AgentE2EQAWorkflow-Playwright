@@ -1,5 +1,6 @@
 // SCRUM-30 | Assignment 14: File Uploads (Positive & Negative)
 // Concepts: .selectFile()
+// @requiredFixtures: ['test.txt']
 
 import { FileUploadPage } from '../../../pages/herokuapp/FileUploadPage';
 

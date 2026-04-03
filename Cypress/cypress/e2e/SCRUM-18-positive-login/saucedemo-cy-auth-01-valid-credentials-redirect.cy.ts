@@ -1,5 +1,6 @@
 // SCRUM-18 | Assignment 2: The Positive Login Path
 // AC: Valid credentials redirect to /inventory.html (intercept + URL assertions)
+// @requiredFixtures: ['users.json']
 
 import { LoginPage } from '../../pages/saucedemo/LoginPage';
 

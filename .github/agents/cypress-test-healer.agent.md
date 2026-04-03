@@ -171,20 +171,38 @@ cy.get('[data-test="username"]').type(user);
 ```
 Also: ensure `cypress.env.json` contains `"username": "standard_user"` and `"password": "secret_sauce"`.
 
-### DATA_MISSING
-**Error:** `"A fixture file could not be found at: cypress/fixtures/users.json"`  
-**Fix 1 (preferred):** Restart the test run — `cypress.config.ts` auto-creates missing fixtures on start.  
-**Fix 2 (manual):** Create the missing file:
-```ts
-// For users.json
-cy.fixture('users').then((users) => { ... })
-// File: Cypress/cypress/fixtures/users.json
-// Content: [{"username":"standard_user","password":"secret_sauce","expectedStatus":"success"}]
+### DATA_MISSING (FIXTURE_NOT_FOUND)
+**Error:** `"A fixture file could not be found at: cypress/fixtures/X"`
 
-// For test.txt
-// File: Cypress/cypress/fixtures/test.txt
-// Content: "This is a sample text file used for file upload tests.\n"
+**Fix — 3 steps, ALL required:**
+
+**Step 1:** Extract the missing fixture filename from the error message.
+
+**Step 2:** Add it to the `@requiredFixtures` metadata at the top of the failing spec:
+```ts
+// BEFORE — spec uses cy.fixture() with no declaration
+// SCRUM-25 | Assignment 9: Strongly Typed Fixtures
+
+// AFTER — fixture declared so ensureFixtures task creates it
+// SCRUM-25 | Assignment 9: Strongly Typed Fixtures
+// @requiredFixtures: ['users.json']
 ```
+If `@requiredFixtures` already exists, append the missing name to the array:
+```ts
+// BEFORE
+// @requiredFixtures: ['users.json']
+// AFTER
+// @requiredFixtures: ['users.json', 'checkout-user.json']
+```
+
+**Step 3:** Verify `REQUIRED_FIXTURES` in `Cypress/cypress.config.ts` contains a default for this filename.
+If it does not, add an entry:
+```ts
+// Inside REQUIRED_FIXTURES object in cypress.config.ts
+'my-new-fixture.json': { key: 'default value' },
+```
+
+**After these 3 steps**, `cypress.config.ts` global scan + `ensureFixtures` task will create the file automatically on the next run — no manual file creation needed.
 
 ### SELECTOR_ISSUE
 **Error:** `Timed out retrying after 4000ms: cy.get() failed`  

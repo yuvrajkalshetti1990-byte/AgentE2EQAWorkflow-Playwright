@@ -228,20 +228,32 @@ beforeEach(() => {
 });
 ```
 
-### Rule 10 — Declare required fixtures with @requiredFixtures metadata
-If a test needs fixture files, declare them at the top of the spec so the pre-flight
-`ensureFixtures` task creates them automatically if missing:
-```ts
-// @requiredFixtures: ['users.json', 'checkout-user.json']
+### Rule 10 — Declare required fixtures with @requiredFixtures metadata — MANDATORY
+**This rule is enforced by a CI validation step that will fail the pipeline if any `cy.fixture()` call is found without a matching `@requiredFixtures` declaration.**
 
-describe('My Suite', () => {
-  it('uses fixture data', () => {
-    cy.fixture('users.json').then((users) => { ... });
-  });
-});
+If a test uses `cy.fixture('X')` OR `.selectFile('cypress/fixtures/X')`, you MUST declare it at line 3 of the spec (after the title comment block):
+
+```ts
+// SCRUM-XX | Assignment N: Title
+// Concepts: ...
+// @requiredFixtures: ['users.json', 'checkout-user.json']
 ```
-Declared fixtures that match known defaults (`users.json`, `checkout-user.json`, `test.txt`)
-are auto-created with correct content. Unknown fixtures get an empty `{}` skeleton.
+
+Rules for the declaration:
+- Include ALL fixture names used in the file in a single `@requiredFixtures` array
+- Use the exact filename including extension (e.g. `users.json`, not `users`)
+- `cy.fixture('users')` and `cy.fixture('users.json')` both require `'users.json'` in the array
+- `.selectFile('cypress/fixtures/test.txt')` requires `'test.txt'` in the array
+
+Known fixtures with auto-created defaults:
+| Fixture | Auto-created content |
+|---------|---------------------|
+| `users.json` | Array of SauceDemo test users (standard, locked, problem, performance_glitch) |
+| `checkout-user.json` | `{ firstName, lastName, postalCode }` for checkout form |
+| `test.txt` | Plain text file for file upload tests |
+| `example.json` | `{ example: true }` |
+
+For **new fixtures** not in the table above, add a default entry to `REQUIRED_FIXTURES` in `Cypress/cypress.config.ts`.
 
 ## Your workflow for each test
 
@@ -279,6 +291,7 @@ describe('Feature name', () => {
 - **NEVER** use `cy.visit()` — always `cy.safeVisit()` (CI lint enforced)
 - **NEVER** use `cy.request()` — always `cy.apiRequest()` (CI lint enforced)
 - **NEVER** use `cy.withinIframe()` — always `cy.withinIframe()` for iframe content
+- **NEVER** use `cy.fixture()` or `.selectFile('cypress/fixtures/...')` without `// @requiredFixtures: [...]` at the top of the spec (CI fixture validation enforced)
 - **NEVER** return values from inside `.then()` callbacks — use assertions or `cy.wrap()`
 - **ALWAYS** establish auth before visiting protected routes — use `cy.login()` or `cy.session()`
 - **ALWAYS** declare fixture dependencies with `// @requiredFixtures: [...]` metadata

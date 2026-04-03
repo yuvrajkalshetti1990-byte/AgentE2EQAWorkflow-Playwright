@@ -1,5 +1,6 @@
 // SCRUM-35 | Assignment 19: The Master E2E Flow
 // Concepts: Tying it all together — custom commands, fixtures, full checkout journey
+// @requiredFixtures: ['checkout-user.json']
 
 import { InventoryPage } from '../../../pages/saucedemo/InventoryPage';
 import { CartPage }      from '../../../pages/saucedemo/CartPage';
