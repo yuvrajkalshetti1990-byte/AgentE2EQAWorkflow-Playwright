@@ -49,6 +49,7 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+      actions: write
 
     steps:
       - name: Checkout repository
@@ -413,13 +414,24 @@ jobs:
           echo "Jira comment posted"
 
       - name: Trigger Playwright tests on feature branch
+        continue-on-error: true   # GITHUB_TOKEN cannot dispatch workflow_dispatch (platform restriction).
+                                  # playwright.yml auto-triggers on Copilot's push to auto/** anyway.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BRANCH: ${{ steps.branch.outputs.BRANCH }}
         run: |
-          # Explicitly dispatch playwright.yml — GITHUB_TOKEN push suppresses push events
-          # so we must trigger downstream tests via API call instead.
-          gh workflow run playwright.yml \
-            --ref "$BRANCH" \
-            --field ref="$BRANCH"
-          echo "Playwright workflow triggered on $BRANCH"
+          # Explicitly dispatch playwright.yml via GitHub API — GITHUB_TOKEN push suppresses
+          # push events so we must trigger downstream tests via workflow_dispatch API call instead.
+          # Requires actions: write permission (set in job-level permissions block above).
+          HTTP_CODE=$(curl -s -o /tmp/dispatch_response.json -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/playwright.yml/dispatches" \
+            -d "{\"ref\":\"$BRANCH\"}")
+          if [[ "$HTTP_CODE" != "204" ]]; then
+            echo "ERROR: workflow dispatch returned HTTP $HTTP_CODE"
+            cat /tmp/dispatch_response.json
+            exit 1
+          fi
+          echo "Playwright workflow triggered on $BRANCH (HTTP $HTTP_CODE)"
