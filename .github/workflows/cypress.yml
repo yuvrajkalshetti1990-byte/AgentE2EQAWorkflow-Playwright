@@ -50,5 +50,5 @@ jobs:
       if: ${{ !cancelled() }}
       with:
         name: cypress-test-results-json
-        path: Cypress/cypress/results/results.json
+        path: Cypress/cypress/reports/
         retention-days: 30

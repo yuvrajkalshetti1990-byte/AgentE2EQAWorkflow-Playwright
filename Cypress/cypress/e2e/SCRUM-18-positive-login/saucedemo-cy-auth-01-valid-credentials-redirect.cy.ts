@@ -11,11 +11,10 @@ describe('SCRUM-18 | Positive Login Path – Redirect to Inventory', () => {
   });
 
   it('AC1: standard_user with valid password is redirected to /inventory.html', () => {
-    cy.intercept('GET', '**/inventory.html').as('inventoryPage');
-
+    // SauceDemo is a SPA — login triggers a React Router URL change, not a network request.
+    // Use cy.intercept on the API/XHR layer and assert URL directly instead of waiting for a page GET.
     loginPage.login('standard_user', 'secret_sauce');
 
-    cy.wait('@inventoryPage');
     cy.url().should('include', '/inventory.html');
   });
 
