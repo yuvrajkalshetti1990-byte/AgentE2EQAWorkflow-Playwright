@@ -1,20 +1,25 @@
-// spec: specs/saucedemo-checkout-test-plan.md
-// seed: tests/seed.spec.ts
+// Jira: SCRUM-14 — SauceDemo Checkout E2E Tests
+// AC-3: Complete multi-item checkout with correct price calculations
 
 import { test, expect } from '@playwright/test';
 
 test.describe('Happy Path – Full Checkout Flow', () => {
   test.beforeEach(async ({ page }) => {
-    // Navigate to login page and authenticate
+    const username = process.env.SAUCE_USERNAME ?? 'standard_user';
+    const password = process.env.SAUCE_PASSWORD ?? 'secret_sauce';
+    console.log('[STEP] Logging in as %s', username);
     await page.goto('https://www.saucedemo.com');
-    await page.locator('[data-test="username"]').fill('standard_user');
-    await page.locator('[data-test="password"]').fill('secret_sauce');
+    console.log('[NAV] url=%s title=%s', page.url(), await page.title());
+    await page.locator('[data-test="username"]').fill(username);
+    await page.locator('[data-test="password"]').fill(password);
     await page.locator('[data-test="login-button"]').click();
+    console.log('[ASSERT] Expected URL to contain /inventory.html, got: %s', page.url());
     await expect(page).toHaveURL(/inventory\.html/);
   });
 
+  // AC-3: Complete multi-item checkout with correct price calculations
   test('TC-HP-02: Complete multi-item checkout with correct price calculations', async ({ page }) => {
-    // 1. Add Sauce Labs Backpack to cart
+    console.log('[STEP] Starting TC-HP-02: multi-item checkout and price verification');
     await page.locator('[data-test="add-to-cart-sauce-labs-backpack"]').click();
 
     // 2. Add Sauce Labs Bike Light to cart
@@ -66,7 +71,9 @@ test.describe('Happy Path – Full Checkout Flow', () => {
     await expect(page).toHaveURL(/checkout-complete\.html/);
 
     // 13. Verify order confirmation and cart is cleared
+    console.log('[ASSERT] Verifying order confirmation and empty cart badge');
     await expect(page.locator('h2')).toHaveText('Thank you for your order!');
     await expect(page.locator('.shopping_cart_badge')).not.toBeVisible();
+    console.log('[NAV] Final url: %s', page.url());
   });
 });

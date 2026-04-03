@@ -36,6 +36,13 @@ jobs:
     - name: Install Cypress binary
       run: npx cypress install
 
+    - name: "Pre-flight: TypeScript compilation check"
+      run: |
+        echo "::group::TypeScript compilation"
+        npx tsc --noEmit -p qa-framework/frameworks/cypress/tsconfig.json
+        echo "::endgroup::"
+        echo "::notice::TypeScript compilation: OK"
+
     - name: "DEBUG: Environment info"
       run: |
         echo "::group::Environment"

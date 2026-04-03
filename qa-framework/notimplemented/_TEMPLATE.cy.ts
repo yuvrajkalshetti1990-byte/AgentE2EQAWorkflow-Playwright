@@ -28,12 +28,11 @@
  */
 
 describe('{ISSUE_KEY} — Not Implemented AC-{N}', () => {
-  // @ts-expect-error notimplemented metadata for pipeline tooling
   const __meta__ = {
     jira:        '{ISSUE_KEY}',
-    ac:          {N},
+    ac:          'N',
     category:    '{FAILURE_CATEGORY}' as const,
-    autoFixable: {true|false},
+    autoFixable: false,
     required:    ['{REQUIRED_VAR_OR_FILE}'],
     reason:      '{REASON}',
   };

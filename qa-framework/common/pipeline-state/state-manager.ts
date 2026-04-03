@@ -23,7 +23,7 @@ import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('state-manager');
 
-const STATE_DIR = path.resolve(process.cwd(), 'qa-framework', 'pipeline-state');
+const STATE_DIR = path.resolve(process.cwd(), 'qa-framework', 'state');
 
 export class PipelineStateManager {
   private readonly filePath: string;

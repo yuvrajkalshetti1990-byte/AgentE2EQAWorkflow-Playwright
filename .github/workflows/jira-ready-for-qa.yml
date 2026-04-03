@@ -76,6 +76,29 @@ jobs:
             echo "::error::ISSUE_KEY is empty - pipeline will fail. Check Jira webhook payload or workflow_dispatch input."
           fi
 
+      - name: Load pipeline state (re-run idempotency)
+        id: pipeline_state
+        run: |
+          STATE_KEY=$(echo "$ISSUE_KEY" | tr '[:upper:]' '[:lower:]')
+          BRANCH="auto/test-${STATE_KEY}"
+          STATE_FILE="qa-framework/state/${STATE_KEY}.state.json"
+
+          # Fetch the feature branch if it already exists to check for cached state
+          git fetch origin "$BRANCH" 2>/dev/null || true
+
+          if git show "origin/${BRANCH}:${STATE_FILE}" > /tmp/pipeline.state.json 2>/dev/null; then
+            CACHED_VERDICT=$(node -e \
+              "try{const s=require('/tmp/pipeline.state.json');console.log(s.acVerdict||'');}catch(e){console.log('')}" \
+              2>/dev/null || echo "")
+            echo "CACHED_AC_VERDICT=${CACHED_VERDICT}" >> "$GITHUB_OUTPUT"
+            echo "STATE_LOADED=true"                   >> "$GITHUB_OUTPUT"
+            echo "::notice::Pipeline state loaded for $ISSUE_KEY (acVerdict=${CACHED_VERDICT:-pending})"
+          else
+            echo "CACHED_AC_VERDICT=" >> "$GITHUB_OUTPUT"
+            echo "STATE_LOADED=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No existing pipeline state for $ISSUE_KEY — fresh run"
+          fi
+
       - name: Fetch Jira story details
         id: jira
         env:
@@ -140,6 +163,18 @@ jobs:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
+          # Short-circuit: if AC verdict is already cached from a previous run, skip the OpenAI call
+          CACHED="${{ steps.pipeline_state.outputs.CACHED_AC_VERDICT }}"
+          if [[ -n "$CACHED" && "$CACHED" != "null" ]]; then
+            echo "::notice::AC verdict already cached ($CACHED) — skipping OpenAI review on re-run (saves API cost)"
+            echo "SCORE=cached"    >> "$GITHUB_OUTPUT"
+            echo "VERDICT=$CACHED" >> "$GITHUB_OUTPUT"
+            echo "SUMMARY=AC review loaded from cached pipeline state (verdict from initial run)." >> "$GITHUB_OUTPUT"
+            echo "ISSUES="         >> "$GITHUB_OUTPUT"
+            echo "SUGGESTIONS="    >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
 
@@ -479,6 +514,45 @@ jobs:
         run: |
           gh issue edit ${{ steps.gh_issue.outputs.ISSUE_NUMBER }} \
             --add-assignee "Copilot" 2>/dev/null || true
+
+      - name: Persist pipeline state to feature branch
+        if: steps.branch.outputs.BRANCH != '' && steps.ac_review.outputs.VERDICT != 'REWRITE'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="${{ steps.branch.outputs.BRANCH }}"
+          FRAMEWORK="${{ steps.jira.outputs.FRAMEWORK }}"
+
+          # Ensure we are on the feature branch (branch step already checked it out)
+          git checkout "$BRANCH" 2>/dev/null || true
+
+          # Write/update state file using the plain-JS CLI (no npm install needed)
+          node scripts/state.js init "$ISSUE_KEY" "$FRAMEWORK" "$BRANCH"
+          node scripts/state.js set  "$ISSUE_KEY" acVerdict "${{ steps.ac_review.outputs.VERDICT }}"
+
+          SCORE="${{ steps.ac_review.outputs.SCORE }}"
+          [[ -n "$SCORE" && "$SCORE" != "cached" ]] && \
+            node scripts/state.js set "$ISSUE_KEY" acScore "$SCORE"
+
+          ISSUE_NUM="${{ steps.gh_issue.outputs.ISSUE_NUMBER }}"
+          [[ -n "$ISSUE_NUM" ]] && \
+            node scripts/state.js set "$ISSUE_KEY" githubIssueNumber "$ISSUE_NUM"
+
+          node scripts/state.js set "$ISSUE_KEY" jiraStatus "in-qa"
+
+          echo "::group::Pipeline state contents"
+          node scripts/state.js get "$ISSUE_KEY"
+          echo "::endgroup::"
+
+          # Commit and push the state file so subsequent runs can read it
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add qa-framework/state/
+          git diff --cached --quiet || {
+            git commit -m "chore(state): persist pipeline state for $ISSUE_KEY [skip ci]"
+            git push origin "$BRANCH"
+            echo "::notice::Pipeline state committed to $BRANCH"
+          }
 
       - name: Transition Jira issue to In QA
         continue-on-error: true  # 400/409 means issue is already in that state — not an error

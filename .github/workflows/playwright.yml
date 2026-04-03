@@ -32,6 +32,16 @@ jobs:
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
 
+    - name: "Pre-flight: TypeScript compilation check"
+      run: |
+        echo "::group::TypeScript compilation"
+        npx tsc --noEmit -p qa-framework/frameworks/playwright/tsconfig.json
+        echo "::endgroup::"
+        echo "::notice::TypeScript compilation: OK"
+
+    - name: "Pre-flight: Playwright test compliance check"
+      run: node scripts/validate-playwright-tests.js
+
     - name: "DEBUG: Environment info"
       run: |
         echo "::group::Environment"
