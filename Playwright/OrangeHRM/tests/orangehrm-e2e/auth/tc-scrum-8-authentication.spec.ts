@@ -161,8 +161,11 @@ test.describe.serial('Authentication - Session Handling', () => {
     await expect(page).toHaveURL(/auth\/(login|logout)/, { timeout: 10000 });
   });
 
-  test('[AC-8] session cookie is present after login', async ({ context }) => {
-    const cookies = await context.cookies(BASE_URL);
+  test('[AC-8] session cookie is present after login', async ({ page, context }) => {
+    await page.goto(DASHBOARD_URL);
+    await expect(page).toHaveURL(/dashboard\/index/, { timeout: 15000 });
+    // Fetch all cookies (no URL filter) to avoid path-scoping issues
+    const cookies = await context.cookies();
     const sessionCookie = cookies.find(c => c.name === 'orangehrm' || c.httpOnly);
 
     expect(sessionCookie).toBeDefined();

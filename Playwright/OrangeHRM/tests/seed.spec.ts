@@ -4,6 +4,9 @@
 
 import { test as setup, expect } from '@playwright/test';
 import path from 'path';
+import { config as loadEnv } from 'dotenv';
+
+loadEnv({ path: path.resolve(__dirname, '../.env') });
 
 export const AUTH_FILE = path.resolve(__dirname, '../.auth/admin.json');
 

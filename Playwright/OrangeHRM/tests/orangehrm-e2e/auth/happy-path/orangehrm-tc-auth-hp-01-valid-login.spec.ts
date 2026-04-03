@@ -3,13 +3,15 @@
 
 import { test, expect } from '@playwright/test';
 
+const BASE = 'https://opensource-demo.orangehrmlive.com';
+
 // Override project-level storageState so this test starts unauthenticated
 test.use({ storageState: { cookies: [], origins: [] } });
 
 test.describe('Authentication — Valid Login', () => {
   test('Valid login with correct credentials navigates to dashboard', async ({ page }) => {
     // 1. Navigate to the OrangeHRM login page
-    await page.goto('/web/index.php/auth/login');
+    await page.goto(`${BASE}/web/index.php/auth/login`);
 
     // 2. Verify the login page is displayed with username and password fields
     await expect(page.locator('[name="username"]')).toBeVisible();

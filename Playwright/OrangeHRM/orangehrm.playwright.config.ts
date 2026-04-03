@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 import path from 'path';
+import { config as loadEnv } from 'dotenv';
+
+loadEnv({ path: path.resolve(__dirname, '.env') });
 
 const AUTH_FILE = path.resolve(__dirname, '.auth/admin.json');
 
@@ -36,7 +39,7 @@ export default defineConfig({
         storageState: AUTH_FILE,
       },
       dependencies: ['setup'],
-      testIgnore: ['**/seed.spec.ts', '**/seed-gen.spec.ts'],
+      testIgnore: ['**/seed.spec.ts', '**/seed-gen.spec.ts', '**/seed-pim.spec.ts'],
     },
     // {
     //   name: 'firefox',

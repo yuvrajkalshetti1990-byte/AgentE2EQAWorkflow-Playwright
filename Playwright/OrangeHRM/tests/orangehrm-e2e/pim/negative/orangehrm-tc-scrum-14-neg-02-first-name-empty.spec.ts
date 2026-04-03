@@ -1,4 +1,4 @@
-// spec: SCRUM-9-pim-employee-lifecycle-test-plan.md
+// spec: SCRUM-14-pim-new-employee-onboarding-test-plan.md
 // seed: Playwright/OrangeHRM/tests/seed.spec.ts
 
 import { test, expect } from '@playwright/test';
@@ -15,26 +15,24 @@ async function ensureAuth(page: any) {
   }
 }
 
-test.describe('OrangeHRM PIM — Negative Validation Tests', () => {
+test.describe('PIM — New Employee Onboarding — Negative / Validation', () => {
   test.beforeEach(async ({ page }) => { await ensureAuth(page); });
 
-  test('TC-PIM-NEG-01 Submit Add Employee form with First Name empty', async ({ page }) => {
-    // 1. Navigate to /web/index.php/pim/addEmployee
+  test('TC-SCRUM-14-NEG-02: Submit Add Employee form with First Name empty shows required error', async ({ page }) => {
+    // 1. Navigate to the Add Employee form
     await page.goto(`${BASE}/web/index.php/pim/addEmployee`);
+    await expect(page.getByRole('heading', { name: 'Add Employee' })).toBeVisible();
 
-    // 2. Leave First Name blank
-    // (no action needed — field is empty by default)
+    // 2. Leave First Name empty and enter 'SCRUM14' in Last Name
+    await page.getByRole('textbox', { name: 'Last Name' }).pressSequentially('SCRUM14');
 
-    // 3. Enter 'Doe' in Last Name field
-    await page.getByRole('textbox', { name: 'Last Name' }).pressSequentially('Doe');
-
-    // 4. Click the Save button
+    // 3. Click the Save button
     await page.getByRole('button', { name: 'Save' }).click();
 
-    // 5. Expect a 'Required' validation error message to appear under the First Name field
+    // expect: 'Required' validation error appears below First Name
     await expect(page.getByText('Required')).toBeVisible();
 
-    // 6. Expect the form does NOT submit (user remains on the Add Employee page)
+    // expect: Form does not submit — Add Employee heading still visible
     await expect(page.getByRole('heading', { name: 'Add Employee' })).toBeVisible();
   });
 });

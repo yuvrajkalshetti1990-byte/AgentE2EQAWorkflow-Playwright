@@ -3,13 +3,15 @@
 
 import { test, expect } from '@playwright/test';
 
+const BASE = 'https://opensource-demo.orangehrmlive.com';
+
 // Override project-level storageState so this test starts unauthenticated
 test.use({ storageState: { cookies: [], origins: [] } });
 
 test.describe('Authentication — Invalid Credentials', () => {
   test('Login with wrong password shows Invalid credentials error', async ({ page }) => {
     // 1. Navigate to the OrangeHRM login page
-    await page.goto('/web/index.php/auth/login');
+    await page.goto(`${BASE}/web/index.php/auth/login`);
 
     // 2. Enter username "Admin" in the username field
     await page.locator('[name="username"]').fill('Admin');
