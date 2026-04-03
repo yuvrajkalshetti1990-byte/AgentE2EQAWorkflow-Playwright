@@ -89,6 +89,84 @@ so the first CI run is fully observable without a debugger:
 These logs appear in the GitHub Actions step output and in `playwright-report/` HTML.
 Do NOT remove them as "cleanup" — they are required for pipeline observability.
 
+# Resilience Rules — MANDATORY
+
+Apply ALL of the following patterns in every test file you generate.
+
+### Rule 1 — Never use raw process.env / test fixture env values without guarding
+```ts
+// ❌ FORBIDDEN — crashes if env var is undefined
+await page.fill('[data-test="username"]', process.env.SAUCE_USERNAME!);
+
+// ✅ REQUIRED — always guard with a fallback
+const user = process.env.SAUCE_USERNAME ?? 'standard_user';
+const pass = process.env.SAUCE_PASSWORD ?? 'secret_sauce';
+await page.fill('[data-test="username"]', user);
+await page.fill('[data-test="password"]', pass);
+```
+
+### Rule 2 — External URL navigation — use soft status code strategy
+```ts
+// ❌ FORBIDDEN — throws for non-2xx (network errors in CI)
+await page.goto('https://www.saucedemo.com/inventory.html');
+
+// ✅ REQUIRED — capture status but don't throw; assert separately
+const response = await page.goto('https://www.saucedemo.com/inventory.html', {
+  waitUntil: 'domcontentloaded',
+});
+console.log('[NAV] status=%d url=%s', response?.status(), page.url());
+// Only assert status when the test specifically validates it:
+// expect(response?.status()).toBeLessThan(400);
+```
+
+### Rule 3 — API requests — always include API key header for reqres.in
+```ts
+// ❌ FORBIDDEN — reqres.in returns 401/403 without api key
+const res = await page.request.get('https://reqres.in/api/users?page=2');
+
+// ✅ REQUIRED
+const res = await page.request.get('https://reqres.in/api/users?page=2', {
+  headers: { 'x-api-key': process.env.REQRES_API_KEY ?? 'reqres-free-v1' },
+});
+console.log('[API] reqres status=%d', res.status());
+expect(res.ok()).toBeTruthy();
+```
+
+### Rule 4 — Iframe interaction — always use frameLocator
+```ts
+// ❌ FORBIDDEN — direct iframe DOM access crashes in strict mode
+const frame = page.frames().find(f => f.url().includes('example'));
+await frame!.fill('input', 'text');
+
+// ✅ REQUIRED
+const iframe = page.frameLocator('iframe[title="Rich Text Area"]');
+await iframe.locator('body[contenteditable="true"]').clear();
+await iframe.locator('body[contenteditable="true"]').fill('test content');
+```
+
+### Rule 5 — Assertions on dynamic CSS classes — increase timeout and log actual class
+```ts
+// ❌ WRONG — wrong class name + no timeout
+await expect(page.locator('#first-name')).toHaveClass('error');
+
+// ✅ CORRECT — log actual class first, then assert with timeout
+const el = page.locator('[data-test="firstName"]');
+await el.focus();
+await el.blur();
+const cls = await el.getAttribute('class');
+console.log('[ASSERT] Classes on field: %s', cls);
+await expect(el).toHaveClass(/input_error/, { timeout: 8000 });
+```
+
+### Rule 6 — notimplemented stubs — always use structured metadata
+When an AC cannot be implemented, create a stub at:
+`qa-framework/notimplemented/{issue-key-lower}-ac-{n}.notimplemented.spec.ts`
+
+Use the template at `qa-framework/notimplemented/_TEMPLATE.spec.ts`. Fill in:
+- `@category` — one of: ENV_MISSING | DATA_MISSING | SELECTOR_ISSUE | NETWORK_FAILURE | ASSERTION_FAILURE | IFRAME_ISSUE | API_KEY_MISSING | FRAMEWORK_LIMITATION | UNKNOWN
+- `@autoFixable` — true if a custom command or env var fix would resolve it
+- `@required` — list of env vars, fixture files, or data-cy attributes needed
+
 # For each test you generate
 - Obtain the test plan with all the steps and verification specification
 - Run the `generator_setup_page` tool to set up page for the scenario

@@ -63,6 +63,38 @@ jobs:
         echo "::endgroup::"
         echo "Runnable Cypress specs found: $SPEC_COUNT"
 
+    - name: "Pre-flight: validate env vars and fixtures"
+      run: |
+        echo "::group::Env Validation"
+        node -e "
+          const fs = require('fs');
+          const required = ['username', 'password', 'REQRES_API_KEY'];
+          const envPath = 'Cypress/cypress.env.json';
+          if (fs.existsSync(envPath)) {
+            const env = JSON.parse(fs.readFileSync(envPath, 'utf8'));
+            required.forEach(k => {
+              if (env[k]) {
+                console.log('  OK:   ' + k + ' is set');
+              } else {
+                console.log('  WARN: ' + k + ' missing in cypress.env.json (cypress.config.ts default will apply)');
+              }
+            });
+          } else {
+            console.log('::warning::No Cypress/cypress.env.json found — all env vars will use built-in defaults');
+          }
+          const fixtureDir = 'Cypress/cypress/fixtures';
+          const required_fixtures = ['users.json', 'test.txt', 'checkout-user.json'];
+          if (fs.existsSync(fixtureDir)) {
+            required_fixtures.forEach(f => {
+              const exists = fs.existsSync(fixtureDir + '/' + f);
+              console.log('  FIXTURE ' + (exists ? 'OK:   ' : 'WARN: ') + f + (exists ? ' exists' : ' missing (will be auto-created by cypress.config.ts)'));
+            });
+          } else {
+            console.log('  WARN: fixtures directory not found — will be created at runtime');
+          }
+        "
+        echo "::endgroup::"
+
     - name: Run Cypress tests
       if: steps.count_specs.outputs.SPEC_COUNT != '0'
       run: |

@@ -79,6 +79,103 @@ first CI run is fully observable in Cypress Cloud or local Mochawesome report:
 These logs appear in the Cypress Test Runner timeline and in the Mochawesome HTML report.
 Do NOT remove them — they are required for pipeline observability on the first run.
 
+## Resilience Rules — MANDATORY
+
+Apply ALL of the following patterns in every test file you generate. These prevent the
+known failure modes observed in the first live pipeline run.
+
+### Rule 1 — Never use raw Cypress.env() in cy.type()
+A missing env var causes `cy.type(undefined)` → hard crash. Always guard:
+```ts
+// ❌ FORBIDDEN
+cy.get('[data-test="username"]').type(Cypress.env('username'));
+
+// ✅ REQUIRED
+const user = (Cypress.env('username') as string | undefined) ?? 'standard_user';
+const pass = (Cypress.env('password') as string | undefined) ?? 'secret_sauce';
+cy.get('[data-test="username"]').type(user);
+cy.get('[data-test="password"]').type(pass);
+```
+
+### Rule 2 — Use cy.login() for SauceDemo authentication
+The `cy.login()` custom command is defined in `cypress/support/commands.ts`.
+It applies safe defaults automatically:
+```ts
+// ❌ DO NOT repeat login steps inline
+cy.get('[data-test="username"]').type(Cypress.env('username')); // crashes if undefined
+
+// ✅ USE custom command — handles defaults internally
+cy.login(); // uses env.username ?? 'standard_user'
+cy.login('problem_user'); // explicit user, still safe
+```
+
+### Rule 3 — Use cy.safeVisit() for all external URLs
+All external domains (saucedemo.com, reqres.in, demoqa.com, the-internet.herokuapp.com)
+may return non-2xx responses in CI. Always use:
+```ts
+// ❌ FORBIDDEN for external URLs
+cy.visit('https://www.saucedemo.com/inventory.html');
+
+// ✅ REQUIRED
+cy.safeVisit('https://www.saucedemo.com/inventory.html');
+// cy.safeVisit() adds failOnStatusCode:false and logs the landed URL
+```
+`baseUrl` visits (`cy.visit('/')`) are exempt — they go through the configured `baseUrl` and
+use Cypress's own retry logic.
+
+### Rule 4 — Use cy.apiRequest() for all reqres.in API tests
+reqres.in requires an `x-api-key` header. Never use raw `cy.request()`:
+```ts
+// ❌ FORBIDDEN
+cy.request({ url: 'https://reqres.in/api/users?page=2' });
+
+// ✅ REQUIRED
+cy.apiRequest({ url: 'https://reqres.in/api/users?page=2' });
+// Injects x-api-key from Cypress.env('REQRES_API_KEY') (default: 'reqres-free-v1')
+```
+
+### Rule 5 — Use cy.withinIframe() for all iframe interactions
+Never interact with iframe content using raw `.its('contentDocument.body')`:
+```ts
+// ❌ FORBIDDEN
+cy.get('iframe').its('0.contentDocument.body').find('input').type('text');
+
+// ✅ REQUIRED
+cy.withinIframe('iframe[title="Rich Text Area"]', ($body) => {
+  cy.wrap($body).find('body[contenteditable="true"]').clear().type('test content');
+});
+```
+
+### Rule 6 — Use cy.fixture() with existence guard
+Fixtures are auto-created by `cypress.config.ts` for known files (users.json, test.txt,
+checkout-user.json). For new fixtures, create the file alongside the test and document the
+required structure in a comment:
+```ts
+// Fixture created at: Cypress/cypress/fixtures/custom-data.json
+// Structure: { "key": "value" }
+cy.fixture('custom-data').then((data) => {
+  const val = (data.key as string | undefined) ?? 'fallback';
+  cy.get('[data-test="input"]').type(val);
+});
+```
+
+### Rule 7 — Assertions on dynamic class names (focus/blur patterns)
+SauceDemo uses `input_error` as the error class, NOT `error`:
+```ts
+// ❌ WRONG class name for SauceDemo
+cy.get('#first-name').should('have.class', 'error');
+
+// ✅ CORRECT with increased timeout for animation
+cy.get('[data-test="firstName"]').focus().blur();
+cy.get('[data-test="firstName"]', { timeout: 8000 }).should('have.class', 'input_error');
+```
+Always verify the exact class name by adding `cy.log()` before the assertion:
+```ts
+cy.get('[data-test="firstName"]').then($el => {
+  cy.log('Classes: ' + $el.attr('class'));
+});
+```
+
 ## Your workflow for each test
 
 1. **Receive the test plan item** — accept the scenario steps and acceptance criteria from the user

@@ -6,10 +6,34 @@ declare global {
     interface Chainable {
       /**
        * Logs in to SauceDemo.
-       * Password is sourced from `cypress.env.json` → `SAUCE_PASSWORD`.
-       * @param username - The SauceDemo username to authenticate with.
+       * Falls back to env.username / env.password / env.SAUCE_PASSWORD so
+       * cy.type(undefined) never crashes.
+       * @param username - Optional username override (defaults to env.username)
+       * @param password - Optional password override (defaults to env.password)
        */
-      login(username: string): Chainable<void>;
+      login(username?: string, password?: string): Chainable<void>;
+
+      /**
+       * Visit a URL with failOnStatusCode:false and automatic URL logging.
+       * Use for all external domains that may be flaky in CI.
+       */
+      safeVisit(url: string, options?: Partial<VisitOptions>): Chainable<void>;
+
+      /**
+       * Make a cy.request() with x-api-key injected from env.REQRES_API_KEY.
+       * failOnStatusCode is false so assertions control pass/fail.
+       */
+      apiRequest(options: Partial<RequestOptions> & { url: string }): Chainable<Response>;
+
+      /**
+       * Interact with content inside an iframe.
+       * @param iframeSelector - CSS selector for the iframe element
+       * @param callback       - Function receiving the iframe body jQuery element
+       */
+      withinIframe(
+        iframeSelector: string,
+        callback: ($body: JQuery<HTMLBodyElement>) => void
+      ): Chainable<void>;
     }
   }
 }

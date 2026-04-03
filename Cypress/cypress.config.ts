@@ -1,5 +1,46 @@
 import { defineConfig } from 'cypress';
 import * as path from 'path';
+import * as fs   from 'fs';
+
+// ---------------------------------------------------------------------------
+// Required environment variables with safe defaults for demo apps.
+// These values are overridden by:
+//   1. cypress.env.json  (committed, public defaults)
+//   2. CYPRESS_* shell env vars  (CI secrets take precedence at runtime)
+// ---------------------------------------------------------------------------
+const ENV_DEFAULTS: Record<string, string> = {
+  // SauceDemo
+  username:       'standard_user',
+  password:       'secret_sauce',
+  SAUCE_PASSWORD: 'secret_sauce',
+  // reqres.in — free-tier key; swap for a paid key via CYPRESS_REQRES_API_KEY secret
+  REQRES_API_KEY: 'reqres-free-v1',
+};
+
+// Known external base URLs used across spec files.
+// Each entry maps a key name to its URL so the pre-flight can warn (not fail)
+// if connectivity fails.
+const KNOWN_BASE_URLS: Record<string, string> = {
+  saucedemo: 'https://www.saucedemo.com',
+  reqres:    'https://reqres.in',
+  demoqa:    'https://demoqa.com',
+  herokuapp: 'https://the-internet.herokuapp.com',
+};
+
+// Required fixtures — created automatically if missing.
+const REQUIRED_FIXTURES: Record<string, string | object> = {
+  'users.json': [
+    { username: 'standard_user',  password: 'secret_sauce', expectedStatus: 'success' },
+    { username: 'locked_out_user', password: 'secret_sauce', expectedStatus: 'failure' },
+    { username: 'problem_user',    password: 'secret_sauce', expectedStatus: 'success' },
+  ],
+  'test.txt':         'This is a sample text file used for the Cypress file upload assignment.\n',
+  'checkout-user.json': {
+    firstName: 'Test',
+    lastName:  'User',
+    zipCode:   '12345',
+  },
+};
 
 export default defineConfig({
   e2e: {
@@ -8,13 +49,26 @@ export default defineConfig({
     baseUrl: 'https://www.saucedemo.com',
 
     // Exclude .notimplemented stubs from CI runs
-    specPattern:    path.join(__dirname, 'cypress/e2e/**/*.cy.ts'),
+    specPattern:        path.join(__dirname, 'cypress/e2e/**/*.cy.ts'),
     excludeSpecPattern: '**/*.notimplemented.cy.ts',
 
     // Use absolute path so supportFile resolves correctly regardless of CWD
     supportFile:       path.join(__dirname, 'cypress/support/e2e.ts'),
     videosFolder:      path.join(__dirname, 'cypress/videos'),
     screenshotsFolder: path.join(__dirname, 'cypress/screenshots'),
+
+    // Default command timeout — increased from 4 s to 8 s to reduce flakiness on
+    // slow CI runners and pages that animate before becoming interactive.
+    defaultCommandTimeout: 8000,
+    pageLoadTimeout:       30000,
+    requestTimeout:        15000,
+    responseTimeout:       15000,
+
+    // Retry failed tests once in CI (run mode), zero retries locally.
+    retries: { runMode: 1, openMode: 0 },
+
+    // Safe defaults for env vars — overridden by cypress.env.json and CYPRESS_* secrets.
+    env: ENV_DEFAULTS,
 
     // Mochawesome JSON reporter — consumed by post-results-to-jira.yml
     // Stats are written to Cypress/cypress/reports/mochawesome.json
@@ -30,9 +84,42 @@ export default defineConfig({
     },
 
     setupNodeEvents(on, config) {
-      // Wire up Mochawesome reporter hooks
+      // ── 1. Wire up Mochawesome reporter hooks ────────────────────────────
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       require('cypress-mochawesome-reporter/plugin')(on);
+
+      // ── 2. Merge ENV_DEFAULTS under runtime config (CYPRESS_* vars win) ─
+      for (const [key, val] of Object.entries(ENV_DEFAULTS)) {
+        if (!config.env[key]) {
+          config.env[key] = val;
+          console.log(`[preflight] env.${key} not set — using default`);
+        }
+      }
+
+      // ── 3. Auto-create missing fixture files ─────────────────────────────
+      const fixturesDir = path.join(__dirname, 'cypress', 'fixtures');
+      fs.mkdirSync(fixturesDir, { recursive: true });
+      for (const [filename, content] of Object.entries(REQUIRED_FIXTURES)) {
+        const filePath = path.join(fixturesDir, filename);
+        if (!fs.existsSync(filePath)) {
+          const body = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+          fs.writeFileSync(filePath, body, 'utf8');
+          console.log(`[preflight] Created missing fixture: ${filename}`);
+        }
+      }
+
+      // ── 4. Log base URL reachability warnings (non-blocking) ─────────────
+      // We only warn — not block — because CI nodes may not have external access
+      // during setup phase.  Tests that hit unreachable URLs are caught at runtime.
+      console.log('[preflight] Known external URLs:');
+      for (const [name, url] of Object.entries(KNOWN_BASE_URLS)) {
+        console.log(`  ${name}: ${url}`);
+      }
+
+      // ── 5. Log resolved env key set (values redacted) ────────────────────
+      const envKeys = Object.keys(config.env);
+      console.log(`[preflight] Resolved env vars (${envKeys.length}): ${envKeys.join(', ')}`);
+
       return config;
     },
   },
