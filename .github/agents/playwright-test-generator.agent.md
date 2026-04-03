@@ -85,3 +85,31 @@ application behavior.
    });
    ```
    </example-generation>
+
+# Selector Strategy — MANDATORY
+
+Always prefer selectors in this priority order:
+1. `getByRole('button', { name: '...' })` or `getByRole('textbox', { name: '...' })`
+2. `getByLabel('...')` for form inputs
+3. `getByText('...')` for visible text elements
+4. Attribute selectors scoped to a parent container: `page.locator('.oxd-form').locator('[name="firstName"]')`
+5. CSS attribute selectors ONLY when no role/label/text option exists
+
+**NEVER use these selectors without a parent scope** — they match multiple elements in OrangeHRM and will
+cause a Playwright strict mode violation, making the test loop:
+- `input[type="checkbox"]` — use `getByLabel('Create Login Details')` instead
+- `button[type="submit"]` — use `getByRole('button', { name: 'Save' })` instead
+- `.oxd-input` or `.oxd-input--active` — use `getByLabel('...')` or scope to the specific form section
+- `.last()` on a class-based locator without a label — unreliable; take a snapshot first to identify the element
+
+# Loop Prevention — MANDATORY
+
+If a `browser_evaluate` call fails (strict mode violation, timeout, or selector not found):
+1. **DO NOT retry with the same or similar code immediately.**
+2. First call `browser_snapshot` to inspect the current DOM state.
+3. Identify a unique, unambiguous selector for the target element from the snapshot.
+4. Only then retry with the corrected selector.
+
+Strict mode violations always mean the locator matched more than one element.
+Timeouts on `waitForURL` always mean the preceding action (usually a submit click) did not fire.
+Both require a snapshot to diagnose — never retry blind.
