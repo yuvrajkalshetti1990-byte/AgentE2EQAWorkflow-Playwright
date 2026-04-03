@@ -168,6 +168,21 @@ Use the template at `qa-framework/notimplemented/_TEMPLATE.spec.ts`. Fill in:
 - `@required` — list of env vars, fixture files, or data-cy attributes needed
 
 # For each test you generate
+
+> **BRANCH RULE — MANDATORY BEFORE ANY FILE CREATION**
+> If the user provides a Jira issue key (e.g. SCRUM-18) or a branch name (e.g. `auto/test-scrum-18`),
+> you MUST switch to that branch before creating or editing any files:
+> ```bash
+> git checkout auto/test-scrum-{key-lower}
+> ```
+> If the branch does not exist locally, create it from `dev`:
+> ```bash
+> git checkout dev && git pull && git checkout -b auto/test-scrum-{key-lower}
+> ```
+> **Never commit test files directly to `dev` or `main`.** Tests committed to `dev` bypass the
+> `post-results-to-jira.yml` pipeline which only triggers on `auto/test-*` branches.
+
+- Switch to the correct `auto/test-*` branch (see branch rule above)
 - Obtain the test plan with all the steps and verification specification
 - Run the `generator_setup_page` tool to set up page for the scenario
 - For each step and verification in the scenario, do the following:
