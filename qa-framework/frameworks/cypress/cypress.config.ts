@@ -75,10 +75,19 @@ export default defineConfig({
 
     // Built-in Mocha JSON reporter — no extra package needed.
     // Outputs Cypress/cypress/reports/results.json which post-results-to-jira.yml
-    // looks for (stats.passes / stats.failures / stats.pending).
-    reporter: 'json',
+    // Mochawesome reporter — outputs both results.json (consumed by
+    // post-results-to-jira.yml via stats.passes/failures/pending) and
+    // results.html (human-readable report uploaded as a CI artifact).
+    reporter: 'mochawesome',
     reporterOptions: {
-      output: path.join(__dirname, 'reports/results.json'),
+      reportDir:           path.join(__dirname, 'reports'),
+      reportFilename:      'results',
+      overwrite:           true,
+      html:                true,
+      json:                true,
+      charts:              true,
+      embeddedScreenshots: true,
+      inlineAssets:        true,
     },
 
     setupNodeEvents(on, config) {

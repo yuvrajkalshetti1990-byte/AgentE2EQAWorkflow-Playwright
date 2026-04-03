@@ -115,7 +115,9 @@ jobs:
         echo "::endgroup::"
         echo "::group::Mochawesome JSON summary"
         MOCH_FILE=""
-        if [[ -f "qa-framework/frameworks/cypress/reports/mochawesome.json" ]]; then
+        if [[ -f "qa-framework/frameworks/cypress/reports/results.json" ]]; then
+          MOCH_FILE="qa-framework/frameworks/cypress/reports/results.json"
+        elif [[ -f "qa-framework/frameworks/cypress/reports/mochawesome.json" ]]; then
           MOCH_FILE="qa-framework/frameworks/cypress/reports/mochawesome.json"
         elif [[ -f "qa-framework/frameworks/cypress/reports/mochawesome/mochawesome.json" ]]; then
           MOCH_FILE="qa-framework/frameworks/cypress/reports/mochawesome/mochawesome.json"
