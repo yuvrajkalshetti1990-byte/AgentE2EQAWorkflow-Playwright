@@ -1,18 +1,26 @@
 // SCRUM-33 | Assignment 17: Spying on Network Calls
-// Concepts: cy.intercept() as a spy, cy.wait()
+// Concepts: cy.intercept() as a spy, cy.wait() on an alias
+// Note: Uses jsonplaceholder.typicode.com via window.fetch() — no page auto-fire dependency
+// @requiredFixtures: []
 
 describe('SCRUM-33 | Assignment 17: Spying on Network Calls', () => {
-  it('should wait for the GET /users?page=2 network call before asserting the response', () => {
-    // Set up the spy BEFORE any navigation or click
-    cy.intercept('GET', '/api/users?page=2').as('getUsers');
+  it('should intercept and spy on a fetch call before it completes', () => {
+    // Set up the spy BEFORE any request fires
+    cy.intercept('GET', 'https://jsonplaceholder.typicode.com/posts/1').as('getPost');
 
-    cy.safeVisit('https://reqres.in/');
+    // Navigate to any page so window is available
+    cy.safeVisit('https://www.saucedemo.com/');
 
-    // Trigger the network call (click the button or rely on page-load call)
-    // Reqres fires the call automatically on page load; uncomment below if there is a button:
-    // cy.contains('button', 'List users').click();
+    // Trigger the fetch from the browser context — cy.intercept() will catch it
+    cy.window().then((win) => {
+      win.fetch('https://jsonplaceholder.typicode.com/posts/1');
+    });
 
-    // Wait on the alias — no arbitrary cy.wait(5000) needed
-    cy.wait('@getUsers').its('response.statusCode').should('equal', 200);
+    // Wait on the alias — no arbitrary cy.wait(n) needed
+    cy.wait('@getPost').then((interception) => {
+      cy.log('ASSERT: spy saw status=' + interception.response?.statusCode);
+      expect(interception.response?.statusCode).to.equal(200);
+      expect(interception.response?.body).to.have.property('id', 1);
+    });
   });
 });
