@@ -1,6 +1,6 @@
 // SCRUM-25 | Assignment 9: Strongly Typed Fixtures
 // Concepts: Test Data Management, TypeScript Interfaces
-// @requiredFixtures: ['users.json']
+// @requiredFixtures: ["users.json"]
 
 import { LoginPage } from '../../../pages/saucedemo/LoginPage';
 

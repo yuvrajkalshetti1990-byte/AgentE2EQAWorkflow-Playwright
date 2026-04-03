@@ -144,13 +144,13 @@ jobs:
             FIXTURE_SIMPLE.lastIndex = 0;
             while ((m = FIXTURE_SIMPLE.exec(src)) !== null) {
               const name = m[1] || m[2];
-              if (name) used.add(name.replace(/\.json$/, '') + (name.includes('.') ? '' : '.json'));
+              if (name) used.add(name.includes('.') ? name : name + '.json');
             }
             SELECT_FILE.lastIndex = 0;
             while ((m = SELECT_FILE.exec(src)) !== null) {
               const raw = m[1] || m[2] || '';
               const base = raw.split('/').pop();
-              if (base) used.add(base);
+              if (base) used.add(base.includes('.') ? base : base + '.json');
             }
             if (used.size === 0) continue;
             const metaMatch = META_RE.exec(src);

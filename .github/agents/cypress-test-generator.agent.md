@@ -236,7 +236,7 @@ If a test uses `cy.fixture('X')` OR `.selectFile('cypress/fixtures/X')`, you MUS
 ```ts
 // SCRUM-XX | Assignment N: Title
 // Concepts: ...
-// @requiredFixtures: ['users.json', 'checkout-user.json']
+// @requiredFixtures: ["users.json", "checkout-user.json"]
 ```
 
 Rules for the declaration:
@@ -271,7 +271,7 @@ For **new fixtures** not in the table above, add a default entry to `REQUIRED_FI
 ## Code style
 
 ```typescript
-// @requiredFixtures: ['users.json']  // declare if test needs fixtures
+// @requiredFixtures: ["users.json"]  // declare if test needs fixtures
 
 describe('Feature name', () => {
   beforeEach(() => {

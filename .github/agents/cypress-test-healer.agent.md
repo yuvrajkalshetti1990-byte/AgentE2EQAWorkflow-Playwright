@@ -185,14 +185,14 @@ Also: ensure `cypress.env.json` contains `"username": "standard_user"` and `"pas
 
 // AFTER — fixture declared so ensureFixtures task creates it
 // SCRUM-25 | Assignment 9: Strongly Typed Fixtures
-// @requiredFixtures: ['users.json']
+// @requiredFixtures: ["users.json"]
 ```
 If `@requiredFixtures` already exists, append the missing name to the array:
 ```ts
 // BEFORE
-// @requiredFixtures: ['users.json']
+// @requiredFixtures: ["users.json"]
 // AFTER
-// @requiredFixtures: ['users.json', 'checkout-user.json']
+// @requiredFixtures: ["users.json", "checkout-user.json"]
 ```
 
 **Step 3:** Verify `REQUIRED_FIXTURES` in `Cypress/cypress.config.ts` contains a default for this filename.
