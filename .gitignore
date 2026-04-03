@@ -34,3 +34,4 @@ node_modules/
 # Secrets — never commit credentials
 .vscode/mcp.json
 .env
+Cypress/cypress.env.json
