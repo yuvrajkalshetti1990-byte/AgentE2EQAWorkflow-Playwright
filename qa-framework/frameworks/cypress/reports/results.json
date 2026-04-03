@@ -1,0 +1,109 @@
+{
+  "stats": {
+    "suites": 1,
+    "tests": 1,
+    "passes": 1,
+    "pending": 0,
+    "failures": 0,
+    "start": "2026-04-03T15:15:33.581Z",
+    "end": "2026-04-03T15:15:33.864Z",
+    "duration": 283,
+    "testsRegistered": 1,
+    "passPercent": 100,
+    "pendingPercent": 0,
+    "other": 0,
+    "hasOther": false,
+    "skipped": 0,
+    "hasSkipped": false
+  },
+  "results": [
+    {
+      "uuid": "2eabb3a0-28f6-4d3f-891d-da36d9662d5c",
+      "title": "",
+      "fullFile": "qa-framework/frameworks/cypress/tests/SCRUM-16-cypress-learning/phase-5-network/reqres-cy-net-03-mock-responses.cy.ts",
+      "file": "qa-framework/frameworks/cypress/tests/SCRUM-16-cypress-learning/phase-5-network/reqres-cy-net-03-mock-responses.cy.ts",
+      "beforeHooks": [],
+      "afterHooks": [],
+      "tests": [],
+      "suites": [
+        {
+          "uuid": "e62b32d4-12ee-483f-95fa-1ede04894152",
+          "title": "SCRUM-34 | Assignment 18: Mocking Network Responses (Negative UI Testing)",
+          "fullFile": "",
+          "file": "",
+          "beforeHooks": [],
+          "afterHooks": [],
+          "tests": [
+            {
+              "title": "should stub a GET endpoint with 500 and verify the stubbed response body",
+              "fullTitle": "SCRUM-34 | Assignment 18: Mocking Network Responses (Negative UI Testing) should stub a GET endpoint with 500 and verify the stubbed response body",
+              "timedOut": null,
+              "duration": 264,
+              "state": "passed",
+              "speed": "fast",
+              "pass": true,
+              "fail": false,
+              "pending": false,
+              "context": null,
+              "code": "// Intercept and stub BEFORE the fetch fires\ncy.intercept('GET', 'https://jsonplaceholder.typicode.com/posts/1', {\n    statusCode: 500,\n    body: { error: 'Server Down' },\n}).as('serverError');\ncy.safeVisit('https://www.saucedemo.com/');\n// Trigger the stubbed fetch from browser context\ncy.window().then((win) => {\n    win.fetch('https://jsonplaceholder.typicode.com/posts/1');\n});\n// Confirm the stub was used and the response reflects the mocked data\ncy.wait('@serverError').then((interception) => {\n    cy.log('ASSERT: stub saw status=' + interception.response?.statusCode);\n    expect(interception.response?.statusCode).to.equal(500);\n    expect(interception.response?.body.error).to.equal('Server Down');\n});",
+              "err": {},
+              "uuid": "cf38ce98-21c5-4170-98c9-d37b274870f6",
+              "parentUUID": "e62b32d4-12ee-483f-95fa-1ede04894152",
+              "isHook": false,
+              "skipped": false
+            }
+          ],
+          "suites": [],
+          "passes": [
+            "cf38ce98-21c5-4170-98c9-d37b274870f6"
+          ],
+          "failures": [],
+          "pending": [],
+          "skipped": [],
+          "duration": 264,
+          "root": false,
+          "rootEmpty": false,
+          "_timeout": 2000
+        }
+      ],
+      "passes": [],
+      "failures": [],
+      "pending": [],
+      "skipped": [],
+      "duration": 0,
+      "root": true,
+      "rootEmpty": true,
+      "_timeout": 2000
+    }
+  ],
+  "meta": {
+    "mocha": {
+      "version": "7.2.0"
+    },
+    "mochawesome": {
+      "options": {
+        "quiet": false,
+        "reportFilename": "results",
+        "saveHtml": true,
+        "saveJson": true,
+        "consoleReporter": "spec",
+        "useInlineDiffs": false,
+        "code": true
+      },
+      "version": "7.1.4"
+    },
+    "marge": {
+      "options": {
+        "reportDir": "/Users/yuvrajkalshetti/Documents/E2E-AgenticWorkflow/qa-framework/frameworks/cypress/reports",
+        "reportFilename": "results",
+        "overwrite": true,
+        "html": true,
+        "json": true,
+        "charts": true,
+        "embeddedScreenshots": true,
+        "inlineAssets": true
+      },
+      "version": "6.3.2"
+    }
+  }
+}
