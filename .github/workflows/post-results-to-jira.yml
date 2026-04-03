@@ -311,22 +311,35 @@ jobs:
           BRANCH: ${{ steps.extract.outputs.BRANCH }}
           ISSUE_KEY: ${{ steps.extract.outputs.ISSUE_KEY }}
         run: |
-          # Check if a PR for this branch already exists
-          EXISTING=$(gh pr list --head "$BRANCH" --base dev --json number --jq '.[0].number' 2>/dev/null || echo "")
+          # Check if a PR for this branch already exists (handles race condition
+          # when both Cypress and Playwright post-results runs fire concurrently)
+          EXISTING=$(gh pr list --head "$BRANCH" --base dev --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
           if [[ -n "$EXISTING" ]]; then
-            echo "PR #$EXISTING already exists for $BRANCH -> dev, skipping"
+            echo "::notice::PR #$EXISTING already exists for $BRANCH -> dev, skipping"
             exit 0
           fi
 
           printf '## Automated test PR\n\nThis PR was created automatically after all CI tests passed on branch `%s`.\n\n**Jira story:** [%s](%s/browse/%s)\n\n### Checklist\n- [x] All CI jobs passed\n- [x] Jira transitioned to Done\n- [ ] Peer review\n- [ ] Merge to dev\n' \
             "$BRANCH" "$ISSUE_KEY" "$ATLASSIAN_BASE_URL" "$ISSUE_KEY" > /tmp/pr_body.md
 
-          gh pr create \
+          # Use || to gracefully handle concurrent creation (race condition between
+          # Cypress and Playwright post-results runs firing at the same time)
+          if gh pr create \
             --base dev \
             --head "$BRANCH" \
             --title "[$ISSUE_KEY] Automated tests - ready to merge" \
             --body-file /tmp/pr_body.md \
-            --label "automated-qa"
-          echo "::notice::PR created: ${BRANCH} → dev"
-          echo "PR created: $BRANCH -> dev"
+            --label "automated-qa" 2>/tmp/pr_create_err; then
+            echo "::notice::PR created: ${BRANCH} → dev"
+            echo "PR created: $BRANCH -> dev"
+          else
+            # Either PR was created by concurrent run, or a real error occurred
+            CONCURRENT=$(gh pr list --head "$BRANCH" --base dev --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+            if [[ -n "$CONCURRENT" ]]; then
+              echo "::notice::PR #$CONCURRENT was created by a concurrent run — skipping"
+            else
+              echo "::error::Failed to create PR: $(cat /tmp/pr_create_err)"
+              exit 1
+            fi
+          fi
 
