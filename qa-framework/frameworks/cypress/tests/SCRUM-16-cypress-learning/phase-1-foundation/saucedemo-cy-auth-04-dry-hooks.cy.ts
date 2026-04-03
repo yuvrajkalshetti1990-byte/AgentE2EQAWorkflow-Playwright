@@ -1,4 +1,4 @@
-// SCRUM-20 | Assignment 4: Keeping it DRY with Hooks
+// Jira: SCRUM-20 — Assignment 4: Keeping it DRY with Hooks
 // Concepts: Test lifecycle hooks, Asynchronous nature
 
 import { LoginPage } from '../../../pages/saucedemo/LoginPage';
@@ -15,10 +15,12 @@ describe('SCRUM-20 | Assignment 4: Keeping it DRY with Hooks', () => {
   });
 
   it('should start on the inventory page after the beforeEach login', () => {
+    cy.log('ASSERT: inventory page is active after beforeEach login');
     inventoryPage.assertOnPage();
   });
 
   it('should display products on the inventory page', () => {
+    cy.log('ASSERT: product list has at least one inventory item');
     cy.get('.inventory_item').should('have.length.greaterThan', 0);
   });
 });

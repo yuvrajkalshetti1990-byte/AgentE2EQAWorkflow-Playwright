@@ -1,4 +1,4 @@
-// SCRUM-32 | Assignment 16: Direct API Testing (Positive & Negative)
+// Jira: SCRUM-32 — Assignment 16: Direct API Testing (Positive & Negative)
 // Concepts: cy.apiRequest() wrapping cy.request(), HTTP status assertions
 // Note: Uses jsonplaceholder.typicode.com — free, no API key required
 // @requiredFixtures: []

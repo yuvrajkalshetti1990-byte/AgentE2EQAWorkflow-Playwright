@@ -108,6 +108,9 @@ jobs:
     - name: "Fixture validation: all cy.fixture() calls must have @requiredFixtures"
       run: node scripts/validate-fixtures.js
 
+    - name: "Pre-flight: Cypress test compliance check"
+      run: node scripts/validate-cypress-tests.js
+
     - name: Run Cypress tests
       if: steps.count_specs.outputs.SPEC_COUNT != '0'
       run: |

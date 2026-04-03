@@ -1,4 +1,4 @@
-// SCRUM-19 | Assignment 3: The Negative Login Path
+// Jira: SCRUM-19 — Assignment 3: The Negative Login Path
 // Concepts: Negative Testing, Explicit Assertions
 
 import { LoginPage } from '../../../pages/saucedemo/LoginPage';
@@ -11,6 +11,7 @@ describe('SCRUM-19 | Assignment 3: The Negative Login Path', () => {
   });
 
   it('should show an error and stay on login page for locked_out_user', () => {
+    cy.log('STEP: attempt login with locked_out_user and assert error message');
     loginPage.login('locked_out_user', 'secret_sauce');
 
     // URL must NOT change to inventory

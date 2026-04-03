@@ -1,4 +1,4 @@
-// SCRUM-36 | Assignment 20: CI/CD & HTML Reporting
+// Jira: SCRUM-36 — Assignment 20: CI/CD & HTML Reporting
 // Concepts: Headless execution, NPM Scripts, Mochawesome Reporter
 //
 // This spec is a smoke test confirming the suite runs headlessly.
@@ -12,12 +12,14 @@
 
 describe('SCRUM-36 | Assignment 20: CI/CD & HTML Reporting', () => {
   it('should run headlessly and confirm the SauceDemo login page loads', () => {
+    cy.log('STEP: visit SauceDemo login page in headless CI mode');
     cy.safeVisit('https://www.saucedemo.com/');
     cy.title().should('eq', 'Swag Labs');
     cy.get('[data-test="login-button"]').should('be.visible');
   });
 
   it('should complete a quick login to confirm the full stack works in CI mode', () => {
+    cy.log('STEP: full stack login via cy.login() in CI mode');
     cy.login('standard_user');
     cy.url().should('include', '/inventory.html');
     cy.get('.app_logo').should('have.text', 'Swag Labs');

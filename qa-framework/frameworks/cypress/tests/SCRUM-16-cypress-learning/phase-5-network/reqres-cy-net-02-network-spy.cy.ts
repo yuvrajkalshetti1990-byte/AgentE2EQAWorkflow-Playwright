@@ -1,4 +1,4 @@
-// SCRUM-33 | Assignment 17: Spying on Network Calls
+// Jira: SCRUM-33 — Assignment 17: Spying on Network Calls
 // Concepts: cy.intercept() as a spy, cy.wait() on an alias
 // Note: Uses jsonplaceholder.typicode.com via window.fetch() — no page auto-fire dependency
 // @requiredFixtures: []

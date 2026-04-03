@@ -1,4 +1,4 @@
-// SCRUM-26 | Assignment 10: Custom Commands with TS Declarations
+// Jira: SCRUM-26 — Assignment 10: Custom Commands with TS Declarations
 // Concepts: Cypress.Commands.add, Global Types
 //
 // Prerequisites:
@@ -17,10 +17,12 @@ describe('SCRUM-26 | Assignment 10: Custom Commands with TS Declarations', () =>
   });
 
   it('should be on the inventory page after cy.login()', () => {
+    cy.log('ASSERT: inventory page active after cy.login() custom command');
     inventoryPage.assertOnPage();
   });
 
   it('should display the page header after cy.login()', () => {
+    cy.log('ASSERT: app logo text reads Swag Labs');
     cy.get('.app_logo').should('have.text', 'Swag Labs');
   });
 });
