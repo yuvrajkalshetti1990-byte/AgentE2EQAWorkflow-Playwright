@@ -84,4 +84,38 @@ jobs:
         path: qa-framework/frameworks/playwright/test-results/results.json
         retention-days: 30
 
+    - name: Generate test execution report
+      if: always()
+      run: |
+        BRANCH="${GITHUB_REF_NAME:-${GITHUB_REF}}"
+        if [[ "$BRANCH" =~ auto/test-(.+) ]]; then
+          SLUG="${BASH_REMATCH[1]}"
+          ISSUE_KEY=$(echo "$SLUG" | tr '[:lower:]' '[:upper:]' | sed 's/-\([0-9]\)/-\1/')
+        else
+          ISSUE_KEY="PIPELINE-${GITHUB_RUN_NUMBER}"
+        fi
+        RESULTS_FILE="qa-framework/frameworks/playwright/test-results/results.json"
+        if [[ ! -f "$RESULTS_FILE" ]]; then
+          echo "::warning::Playwright results.json not found — skipping report generation"
+          exit 0
+        fi
+        node scripts/generate-report.js \
+          --framework playwright \
+          --results-json "$RESULTS_FILE" \
+          --story-key   "$ISSUE_KEY" \
+          --branch      "$BRANCH" \
+          --commit-sha  "$GITHUB_SHA" \
+          --run-url     "https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+        echo "::group::Report preview"
+        head -30 "qa-framework/reports/${ISSUE_KEY}-test-report.md" 2>/dev/null || echo "(report not found)"
+        echo "::endgroup::"
+
+    - uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() }}
+      with:
+        # Name ends with -test-report-md so post-results-to-jira.yml picks it up
+        name: saucedemo-playwright-test-report-md
+        path: qa-framework/reports/
+        retention-days: 30
+
 
