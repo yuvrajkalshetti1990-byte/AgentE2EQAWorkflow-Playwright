@@ -28,6 +28,9 @@ node_modules/
 /Cypress/cypress/screenshots/
 /Cypress/cypress/downloads/
 
+# Playwright MCP server runtime artifacts
+.playwright-mcp/
+
 # Secrets — never commit credentials
 .vscode/mcp.json
 .env
