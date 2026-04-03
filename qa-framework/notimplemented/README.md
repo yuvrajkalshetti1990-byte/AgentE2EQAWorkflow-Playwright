@@ -37,8 +37,8 @@ Example: `scrum-18-ac-3.notimplemented.spec.ts`
 1. Open the stub file — the header comment explains exactly what is missing.
 2. Resolve the missing pieces (add selector, create test data, clarify AC).
 3. Move the file to the appropriate test folder:
-   - Playwright: `Playwright/saucedemo/tests/{story-slug}/`
-   - Cypress:    `Cypress/cypress/e2e/{story-slug}/`
+   - Playwright: `qa-framework/frameworks/playwright/tests/{story-slug}/`
+   - Cypress:    `qa-framework/frameworks/cypress/tests/{story-slug}/`
 4. Remove the `.notimplemented` segment from the filename.
 5. Replace `test.skip()` / `it.skip()` with a real implementation.
 

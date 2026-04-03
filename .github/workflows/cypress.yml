@@ -3,12 +3,12 @@ on:
   push:
     branches: [ main, master, dev, auto/** ]
     paths:
-      - 'Cypress/**'
+      - 'qa-framework/frameworks/cypress/**'
       - '.github/workflows/cypress.yml'
   pull_request:
     branches: [ main, master, dev ]
     paths:
-      - 'Cypress/**'
+      - 'qa-framework/frameworks/cypress/**'
   workflow_dispatch:
     inputs:
       ref:
@@ -52,14 +52,14 @@ jobs:
       id: count_specs
       run: |
         # Exclude .notimplemented stubs — they are skipped intentionally
-        SPEC_COUNT=$(find Cypress/cypress/e2e -name "*.cy.ts" ! -name "*.notimplemented.cy.ts" 2>/dev/null | wc -l | tr -d ' ')
+        SPEC_COUNT=$(find qa-framework/frameworks/cypress/tests -name "*.cy.ts" ! -name "*.notimplemented.cy.ts" 2>/dev/null | wc -l | tr -d ' ')
         echo "SPEC_COUNT=$SPEC_COUNT" >> "$GITHUB_OUTPUT"
 
         echo "::group::Cypress specs found ($SPEC_COUNT runnable)"
-        find Cypress/cypress/e2e -name "*.cy.ts" ! -name "*.notimplemented.cy.ts" 2>/dev/null | sort || echo "(none)"
+        find qa-framework/frameworks/cypress/tests -name "*.cy.ts" ! -name "*.notimplemented.cy.ts" 2>/dev/null | sort || echo "(none)"
         echo "---"
         echo "Ignored stubs:"
-        find Cypress/cypress/e2e -name "*.notimplemented.cy.ts" 2>/dev/null | sort || echo "(none)"
+        find qa-framework/frameworks/cypress/tests -name "*.notimplemented.cy.ts" 2>/dev/null | sort || echo "(none)"
         echo "::endgroup::"
         echo "Runnable Cypress specs found: $SPEC_COUNT"
 
@@ -69,7 +69,7 @@ jobs:
         node -e "
           const fs = require('fs');
           const required = ['username', 'password', 'REQRES_API_KEY'];
-          const envPath = 'Cypress/cypress.env.json';
+          const envPath = 'qa-framework/frameworks/cypress/cypress.env.json';
           if (fs.existsSync(envPath)) {
             const env = JSON.parse(fs.readFileSync(envPath, 'utf8'));
             required.forEach(k => {
@@ -80,9 +80,9 @@ jobs:
               }
             });
           } else {
-            console.log('::warning::No Cypress/cypress.env.json found — all env vars will use built-in defaults');
+            console.log('::warning::No qa-framework/frameworks/cypress/cypress.env.json found — all env vars will use built-in defaults');
           }
-          const fixtureDir = 'Cypress/cypress/fixtures';
+          const fixtureDir = 'qa-framework/frameworks/cypress/fixtures';
           const required_fixtures = ['users.json', 'test.txt', 'checkout-user.json'];
           if (fs.existsSync(fixtureDir)) {
             required_fixtures.forEach(f => {
@@ -104,21 +104,21 @@ jobs:
     - name: Run Cypress tests
       if: steps.count_specs.outputs.SPEC_COUNT != '0'
       run: |
-        mkdir -p Cypress/cypress/reports
-        npx cypress run --config-file Cypress/cypress.config.ts
+        mkdir -p qa-framework/frameworks/cypress/reports
+        npx cypress run --config-file qa-framework/frameworks/cypress/cypress.config.ts
 
     - name: "DEBUG: Cypress results"
       if: always() && steps.count_specs.outputs.SPEC_COUNT != '0'
       run: |
         echo "::group::Cypress reports directory"
-        ls -la Cypress/cypress/reports/ 2>/dev/null || echo "(reports dir missing)"
+        ls -la qa-framework/frameworks/cypress/reports/ 2>/dev/null || echo "(reports dir missing)"
         echo "::endgroup::"
         echo "::group::Mochawesome JSON summary"
         MOCH_FILE=""
-        if [[ -f "Cypress/cypress/reports/mochawesome.json" ]]; then
-          MOCH_FILE="Cypress/cypress/reports/mochawesome.json"
-        elif [[ -f "Cypress/cypress/reports/mochawesome/mochawesome.json" ]]; then
-          MOCH_FILE="Cypress/cypress/reports/mochawesome/mochawesome.json"
+        if [[ -f "qa-framework/frameworks/cypress/reports/mochawesome.json" ]]; then
+          MOCH_FILE="qa-framework/frameworks/cypress/reports/mochawesome.json"
+        elif [[ -f "qa-framework/frameworks/cypress/reports/mochawesome/mochawesome.json" ]]; then
+          MOCH_FILE="qa-framework/frameworks/cypress/reports/mochawesome/mochawesome.json"
         fi
         if [[ -n "$MOCH_FILE" ]]; then
           echo "File: $MOCH_FILE ($(wc -c < "$MOCH_FILE") bytes)"
@@ -143,7 +143,7 @@ jobs:
       if: ${{ !cancelled() && steps.count_specs.outputs.SPEC_COUNT != '0' }}
       with:
         name: cypress-videos
-        path: Cypress/cypress/videos/
+        path: qa-framework/frameworks/cypress/videos/
         retention-days: 30
 
     - name: Upload Cypress screenshots
@@ -151,7 +151,7 @@ jobs:
       if: ${{ !cancelled() && steps.count_specs.outputs.SPEC_COUNT != '0' }}
       with:
         name: cypress-screenshots
-        path: Cypress/cypress/screenshots/
+        path: qa-framework/frameworks/cypress/screenshots/
         retention-days: 30
 
     - name: Upload Cypress results JSON
@@ -160,5 +160,5 @@ jobs:
       with:
         # Name ends with -test-results-json so post-results-to-jira.yml picks it up
         name: cypress-test-results-json
-        path: Cypress/cypress/reports/
+        path: qa-framework/frameworks/cypress/reports/
         retention-days: 30

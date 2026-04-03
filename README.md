@@ -222,19 +222,19 @@ To switch an existing story: remove/add the label, move back to "Ready for QA", 
 npm ci
 
 # Playwright — SauceDemo
-npx playwright test --config=Playwright/saucedemo/saucedemo.playwright.config.ts
+npx playwright test --config=qa-framework/frameworks/playwright/playwright.config.ts
 
 # Playwright — with UI
-npx playwright test --config=Playwright/saucedemo/saucedemo.playwright.config.ts --ui
+npx playwright test --config=qa-framework/frameworks/playwright/playwright.config.ts --ui
 
 # Cypress — interactive Test Runner
-npx cypress open --config-file Cypress/cypress.config.ts
+npx cypress open --config-file qa-framework/frameworks/cypress/cypress.config.ts
 
 # Cypress — headless CI run
-npx cypress run --config-file Cypress/cypress.config.ts
+npx cypress run --config-file qa-framework/frameworks/cypress/cypress.config.ts
 
 # Run a single Playwright spec
-npx playwright test --config=Playwright/saucedemo/saucedemo.playwright.config.ts path/to/spec.spec.ts
+npx playwright test --config=qa-framework/frameworks/playwright/playwright.config.ts path/to/spec.spec.ts
 ```
 
 ---
@@ -268,8 +268,8 @@ E2E-AgenticWorkflow/
 │   │   ├── cypress-test-generator.agent.md
 │   │   └── cypress-test-healer.agent.md
 │   ├── instructions/
-│   │   ├── playwright.instructions.md        # Auto-applied to Playwright/**
-│   │   └── cypress.instructions.md           # Auto-applied to Cypress/**
+│   │   ├── playwright.instructions.md        # Auto-applied to qa-framework/frameworks/playwright/**
+│   │   └── cypress.instructions.md           # Auto-applied to qa-framework/frameworks/cypress/**
 │   ├── workflows/
 │   │   ├── jira-ready-for-qa.yml             # Entry point (Jira webhook)
 │   │   ├── playwright.yml                    # CI — Playwright tests
@@ -279,7 +279,7 @@ E2E-AgenticWorkflow/
 │   ├── copilot-instructions.md               # Global agent routing rules
 │   └── WORKFLOW-GUIDE.md                     # Detailed walkthrough
 │
-├── qa-framework/                             # Framework-agnostic shared code
+├── qa-framework/                             # ALL framework code lives here
 │   ├── common/
 │   │   ├── types/index.ts                    # All shared TypeScript types
 │   │   ├── utils/
@@ -290,28 +290,23 @@ E2E-AgenticWorkflow/
 │   │   ├── agents-core/ac-scorer.ts          # AC scoring + stub generator
 │   │   └── pipeline-state/state-manager.ts   # Idempotent state persistence
 │   ├── frameworks/
-│   │   ├── playwright/spec-builder.ts        # Playwright-specific spec builder
-│   │   └── cypress/spec-builder.ts           # Cypress-specific spec builder
+│   │   ├── playwright/                       # SauceDemo Playwright tests
+│   │   │   ├── playwright.config.ts
+│   │   │   ├── tests/                        # {app}-tc-{area}-{nn}-{desc}.spec.ts
+│   │   │   └── specs/                        # Test plans from @playwright-test-planner
+│   │   └── cypress/                          # Cypress tests
+│   │       ├── cypress.config.ts             # Mochawesome + excludeSpecPattern
+│   │       ├── tests/                        # {app}-cy-{area}-{nn}-{desc}.cy.ts
+│   │       ├── fixtures/
+│   │       ├── pages/
+│   │       └── support/
 │   ├── notimplemented/
 │   │   ├── README.md
 │   │   ├── _TEMPLATE.spec.ts                 # Playwright stub template
 │   │   └── _TEMPLATE.cy.ts                   # Cypress stub template
-│   └── pipeline-state/                       # *.state.json files (per branch)
+│   └── state/                                # *.state.json files (per branch)
 │
-├── Playwright/
-│   └── saucedemo/
-│       ├── saucedemo.playwright.config.ts
-│       ├── tests/                            # {app}-tc-{area}-{nn}-{desc}.spec.ts
-│       └── specs/                            # Test plans from @playwright-test-planner
-│
-├── Cypress/
-│   ├── cypress.config.ts                     # Mochawesome + excludeSpecPattern
-│   └── cypress/
-│       ├── e2e/                              # {app}-cy-{area}-{nn}-{desc}.cy.ts
-│       ├── fixtures/
-│       ├── pages/
-│       └── support/
-│
+├── scripts/                                  # CI validation scripts
 ├── package.json                              # Single node_modules for all frameworks
 └── README.md                                 # This file
 ```
@@ -384,8 +379,8 @@ E2E-AgenticWorkflow/
 │   │   ├── cypress-test-generator.agent.md
 │   │   └── cypress-test-healer.agent.md  # NEW — healing for Cypress failures
 │   ├── instructions/
-│   │   ├── playwright.instructions.md   # Applied to Playwright/** automatically
-│   │   └── cypress.instructions.md      # Applied to Cypress/** automatically
+│   │   ├── playwright.instructions.md   # Applied to qa-framework/frameworks/playwright/** automatically
+│   │   └── cypress.instructions.md      # Applied to qa-framework/frameworks/cypress/** automatically
 │   ├── workflows/
 │   │   ├── jira-ready-for-qa.yml        # Entry point — Jira webhook trigger
 │   │   ├── playwright.yml               # CI — runs Playwright tests
@@ -395,7 +390,7 @@ E2E-AgenticWorkflow/
 │   ├── copilot-instructions.md          # Agent routing rules (enforced globally)
 │   └── WORKFLOW-GUIDE.md               # Detailed pipeline walkthrough
 │
-├── qa-framework/                        # Framework-agnostic shared code
+├── qa-framework/                        # ALL framework code — single source of truth
 │   ├── common/
 │   │   ├── types/index.ts               # Shared TypeScript types (all frameworks)
 │   │   ├── utils/
@@ -409,28 +404,26 @@ E2E-AgenticWorkflow/
 │   │   │   └── ac-scorer.ts             # AC scoring logic + notimplemented stub generator
 │   │   └── pipeline-state/
 │   │       └── state-manager.ts         # Pipeline state persistence (idempotent re-runs)
+│   ├── frameworks/
+│   │   ├── playwright/                  # SauceDemo Playwright tests
+│   │   │   ├── playwright.config.ts
+│   │   │   ├── tests/                   # {app}-tc-{area}-{nn}-{desc}.spec.ts
+│   │   │   └── specs/                   # Test plans from @playwright-test-planner
+│   │   └── cypress/                     # Cypress tests
+│   │       ├── cypress.config.ts        # Mochawesome JSON reporter wired in
+│   │       ├── tests/                   # {app}-cy-{area}-{nn}-{desc}.cy.ts
+│   │       ├── fixtures/
+│   │       ├── pages/
+│   │       └── support/
 │   ├── notimplemented/
 │   │   ├── README.md                    # How to handle unautomatable ACs
 │   │   ├── _TEMPLATE.spec.ts            # Playwright stub template
 │   │   └── _TEMPLATE.cy.ts              # Cypress stub template
-│   └── pipeline-state/
+│   └── state/
 │       └── .gitkeep                     # Directory for *.state.json files (committed per branch)
 │
-├── Playwright/
-│   └── saucedemo/
-│       ├── saucedemo.playwright.config.ts
-│       ├── tests/                       # Test files: {app}-tc-{area}-{nn}-{desc}.spec.ts
-│       └── specs/                       # Test plans from @playwright-test-planner
-│
-├── Cypress/
-│   ├── cypress.config.ts               # Mochawesome JSON reporter wired in
-│   └── cypress/
-│       ├── e2e/                        # Test files: {app}-cy-{area}-{nn}-{desc}.cy.ts
-│       ├── fixtures/
-│       ├── pages/
-│       └── support/
-│
-└── package.json                        # Single node_modules for all frameworks
+├── scripts/                             # CI validation scripts (lint-resilience, validate-fixtures)
+└── package.json                         # Single node_modules for all frameworks
 ```
 
 ---
@@ -521,13 +514,13 @@ See [qa-framework/notimplemented/README.md](qa-framework/notimplemented/README.m
 
 ```bash
 # Playwright — SauceDemo
-npx playwright test --config=Playwright/saucedemo/saucedemo.playwright.config.ts
+npx playwright test --config=qa-framework/frameworks/playwright/playwright.config.ts
 
 # Cypress — interactive
-npx cypress open --config-file Cypress/cypress.config.ts
+npx cypress open --config-file qa-framework/frameworks/cypress/cypress.config.ts
 
 # Cypress — headless
-npx cypress run --config-file Cypress/cypress.config.ts
+npx cypress run --config-file qa-framework/frameworks/cypress/cypress.config.ts
 ```
 
 ---
@@ -536,13 +529,13 @@ npx cypress run --config-file Cypress/cypress.config.ts
 
 ### Playwright
 
-1. Create `Playwright/{appname}/{appname}.playwright.config.ts`
+1. Create `qa-framework/frameworks/playwright/playwright.config.ts` (already exists for SauceDemo)
 2. Add a job to `.github/workflows/playwright.yml` following the existing `test-saucedemo` pattern
 3. Use `@playwright-test-planner` to create a test plan, then `@playwright-test-generator` per scenario
 
 ### Cypress
 
-1. Add a new `specPattern` subfolder under `Cypress/cypress/e2e/{story-slug}/`
+1. Add a new subfolder under `qa-framework/frameworks/cypress/tests/{story-slug}/`
 2. Cypress config already picks up all `*.cy.ts` files recursively — no config change needed
 3. Use `@cypress-test-generator` to create spec files
 

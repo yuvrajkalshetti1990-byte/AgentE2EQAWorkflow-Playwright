@@ -10,17 +10,17 @@ node_modules/
 /playwright/.cache/
 /playwright/.auth/
 
-# Playwright/saucedemo app artifacts
-/Playwright/saucedemo/test-results/
-!/Playwright/saucedemo/test-results/*.md
-/Playwright/saucedemo/playwright-report/
-/Playwright/saucedemo/.auth/
+# qa-framework Playwright artifacts
+/qa-framework/frameworks/playwright/test-results/
+!/qa-framework/frameworks/playwright/test-results/*.md
+/qa-framework/frameworks/playwright/playwright-report/
+/qa-framework/frameworks/playwright/.auth/
 
-# Cypress artifacts
-/Cypress/cypress/videos/
-/Cypress/cypress/results/
-/Cypress/cypress/screenshots/
-/Cypress/cypress/downloads/
+# qa-framework Cypress artifacts
+/qa-framework/frameworks/cypress/videos/
+/qa-framework/frameworks/cypress/results/
+/qa-framework/frameworks/cypress/screenshots/
+/qa-framework/frameworks/cypress/downloads/
 
 # Playwright MCP server runtime artifacts
 .playwright-mcp/
@@ -28,4 +28,4 @@ node_modules/
 # Secrets — never commit credentials
 .vscode/mcp.json
 .env
-Cypress/cypress.env.json
+qa-framework/frameworks/cypress/cypress.env.json

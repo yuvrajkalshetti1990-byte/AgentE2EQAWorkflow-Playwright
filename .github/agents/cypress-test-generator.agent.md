@@ -155,7 +155,7 @@ Fixtures are auto-created by `cypress.config.ts` for known files (users.json, te
 checkout-user.json). For new fixtures, create the file alongside the test and document the
 required structure in a comment:
 ```ts
-// Fixture created at: Cypress/cypress/fixtures/custom-data.json
+// Fixture created at: qa-framework/frameworks/cypress/fixtures/custom-data.json
 // Structure: { "key": "value" }
 cy.fixture('custom-data').then((data) => {
   const val = (data.key as string | undefined) ?? 'fallback';
@@ -253,7 +253,7 @@ Known fixtures with auto-created defaults:
 | `test.txt` | Plain text file for file upload tests |
 | `example.json` | `{ example: true }` |
 
-For **new fixtures** not in the table above, add a default entry to `REQUIRED_FIXTURES` in `Cypress/cypress.config.ts`.
+For **new fixtures** not in the table above, add a default entry to `REQUIRED_FIXTURES` in `qa-framework/frameworks/cypress/cypress.config.ts`.
 
 ## Your workflow for each test
 
@@ -264,9 +264,9 @@ For **new fixtures** not in the table above, add a default entry to `REQUIRED_FI
 
 ## File placement
 
-- All specs go under `Cypress/cypress/e2e/{story-slug}/`
+- All specs go under `qa-framework/frameworks/cypress/tests/{story-slug}/`
 - Naming: `{app-prefix}-cy-{area}-{seq:02d}-{kebab-description}.cy.ts`
-- Example: `Cypress/cypress/e2e/checkout/saucedemo-cy-hp-01-single-item-checkout.cy.ts`
+- Example: `qa-framework/frameworks/cypress/tests/checkout/saucedemo-cy-hp-01-single-item-checkout.cy.ts`
 
 ## Code style
 
@@ -306,8 +306,8 @@ describe('Feature name', () => {
 ## Important limitations
 
 - The `playwright` MCP server is used for **browser exploration only** — it does NOT run Cypress tests
-- To run the generated tests locally: `npx cypress run --config-file Cypress/cypress.config.ts`
-- To open Cypress Test Runner: `npx cypress open --config-file Cypress/cypress.config.ts`
+- To run the generated tests locally: `npx cypress run --config-file qa-framework/frameworks/cypress/cypress.config.ts`
+- To open Cypress Test Runner: `npx cypress open --config-file qa-framework/frameworks/cypress/cypress.config.ts`
 - There is no MCP-based Cypress runner — healing and debugging must be done manually or by re-inspecting the UI
 
 ## Loop Prevention — MANDATORY

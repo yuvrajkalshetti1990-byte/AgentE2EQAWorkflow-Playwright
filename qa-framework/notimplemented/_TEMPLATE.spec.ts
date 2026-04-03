@@ -22,7 +22,7 @@
  *
  * Action Required:
  *   1. Resolve the missing pieces listed above.
- *   2. Move this file to: Playwright/saucedemo/tests/{story-slug}/
+ *   2. Move this file to: qa-framework/frameworks/playwright/tests/{story-slug}/
  *   3. Remove the `.notimplemented` segment from the filename.
  *   4. Replace test.skip() with a real implementation.
  */

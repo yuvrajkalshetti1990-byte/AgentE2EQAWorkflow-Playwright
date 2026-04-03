@@ -120,7 +120,7 @@ const FIX_MATRIX: Record<FailureCategory, Omit<FailureAnalysis, 'category'>> = {
   },
   DATA_MISSING: {
     autoFixable: true,
-    recommendation: 'Create the missing fixture file in Cypress/cypress/fixtures/. cypress.config.ts auto-creates users.json, test.txt, and checkout-user.json on cold start.',
+    recommendation: 'Create the missing fixture file in qa-framework/frameworks/cypress/fixtures/. cypress.config.ts auto-creates users.json, test.txt, and checkout-user.json on cold start.',,
     moveToNotImplemented: false,
   },
   SELECTOR_ISSUE: {

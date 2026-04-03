@@ -439,7 +439,7 @@ jobs:
             '    document the reason and missing pieces — do NOT silently skip')
 
           if [[ "$FRAMEWORK" == "cypress" ]]; then
-            printf '## Automation Task\n\n**Jira Story:** [%s](%s/browse/%s)\n**Branch:** `%s`\n**Framework:** Cypress\n\n## Agent Instructions\n\nGenerate Cypress TypeScript E2E tests for ALL acceptance criteria in the Jira story.\n\n### File Conventions\n- Place files under `Cypress/cypress/e2e/%s/`\n- Config: `Cypress/cypress.config.ts`\n- Naming: `{app-prefix}-cy-{area}-{seq:02d}-{kebab-description}.cy.ts`\n- One `it()` per acceptance criterion (1:1 AC → test mapping)\n- Selectors: prefer [data-cy], [data-testid], ARIA roles\n- Use `cy.session()` for login state caching\n- Use `cy.intercept()` for network stubbing/waiting\n%s\n\nCommit all test files to branch `%s`\n' \
+            printf '## Automation Task\n\n**Jira Story:** [%s](%s/browse/%s)\n**Branch:** `%s`\n**Framework:** Cypress\n\n## Agent Instructions\n\nGenerate Cypress TypeScript E2E tests for ALL acceptance criteria in the Jira story.\n\n### File Conventions\n- Place files under `qa-framework/frameworks/cypress/tests/%s/`\n- Config: `qa-framework/frameworks/cypress/cypress.config.ts`\n- Naming: `{app-prefix}-cy-{area}-{seq:02d}-{kebab-description}.cy.ts`\n- One `it()` per acceptance criterion (1:1 AC → test mapping)\n- Selectors: prefer [data-cy], [data-testid], ARIA roles\n- Use `cy.session()` for login state caching\n- Use `cy.intercept()` for network stubbing/waiting\n%s\n\nCommit all test files to branch `%s`\n' \
               "$ISSUE_KEY" "$ATLASSIAN_BASE_URL" "$ISSUE_KEY" "$BRANCH" \
               "$(echo "$ISSUE_KEY" | tr '[:upper:]' '[:lower:]')" \
               "$AC_TRACEABILITY" \
@@ -447,7 +447,7 @@ jobs:
               > /tmp/issue_body.md
             FRAMEWORK_LABEL="framework:cypress"
           else
-            printf '## Automation Task\n\n**Jira Story:** [%s](%s/browse/%s)\n**Branch:** `%s`\n**Framework:** Playwright\n\n## Agent Instructions\n\nGenerate Playwright TypeScript E2E tests for ALL acceptance criteria in the Jira story.\n\n### File Conventions\n- Place files under `Playwright/saucedemo/tests/%s/`\n- Config: `Playwright/saucedemo/saucedemo.playwright.config.ts`\n- Naming: `saucedemo-tc-{area}-{seq:02d}-{kebab-description}.spec.ts`\n- One `test()` per acceptance criterion (1:1 AC → test mapping)\n- Selectors: prefer [data-test], ARIA roles, [name] attributes\n- Use timestamp suffixes for dynamic test data\n%s\n\nCommit all test files to branch `%s`\n' \
+            printf '## Automation Task\n\n**Jira Story:** [%s](%s/browse/%s)\n**Branch:** `%s`\n**Framework:** Playwright\n\n## Agent Instructions\n\nGenerate Playwright TypeScript E2E tests for ALL acceptance criteria in the Jira story.\n\n### File Conventions\n- Place files under `qa-framework/frameworks/playwright/tests/%s/`\n- Config: `qa-framework/frameworks/playwright/playwright.config.ts`\n- Naming: `saucedemo-tc-{area}-{seq:02d}-{kebab-description}.spec.ts`\n- One `test()` per acceptance criterion (1:1 AC → test mapping)\n- Selectors: prefer [data-test], ARIA roles, [name] attributes\n- Use timestamp suffixes for dynamic test data\n%s\n\nCommit all test files to branch `%s`\n' \
               "$ISSUE_KEY" "$ATLASSIAN_BASE_URL" "$ISSUE_KEY" "$BRANCH" \
               "$(echo "$ISSUE_KEY" | tr '[:upper:]' '[:lower:]')" \
               "$AC_TRACEABILITY" \

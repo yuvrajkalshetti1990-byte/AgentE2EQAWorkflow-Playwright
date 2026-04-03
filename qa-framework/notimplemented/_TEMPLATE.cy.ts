@@ -22,7 +22,7 @@
  *
  * Action Required:
  *   1. Resolve the missing pieces listed above.
- *   2. Move this file to: Cypress/cypress/e2e/{story-slug}/
+ *   2. Move this file to: qa-framework/frameworks/cypress/tests/{story-slug}/
  *   3. Remove the `.notimplemented` segment from the filename.
  *   4. Replace it.skip() with a real implementation.
  */

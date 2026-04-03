@@ -40,10 +40,10 @@ for test generation or healing; the agent handles that.
 
 ## Project Structure
 
-- `Playwright/saucedemo/` — SauceDemo Playwright tests. Config: `Playwright/saucedemo/saucedemo.playwright.config.ts`
-- `Playwright/saucedemo/tests/` — One subfolder per Jira story
-- `Cypress/` — Cypress tests. Config: `Cypress/cypress.config.ts`
-- `Cypress/cypress/e2e/{story-slug}/` — One folder per Jira story
+- `qa-framework/frameworks/playwright/` — SauceDemo Playwright tests. Config: `qa-framework/frameworks/playwright/playwright.config.ts`
+- `qa-framework/frameworks/playwright/tests/` — One subfolder per Jira story
+- `qa-framework/frameworks/cypress/` — Cypress tests. Config: `qa-framework/frameworks/cypress/cypress.config.ts`
+- `qa-framework/frameworks/cypress/tests/{story-slug}/` — One folder per Jira story
 - `.github/agents/` — Custom agent definitions
 - `.vscode/mcp.json` — MCP server config (gitignored)
 
@@ -65,13 +65,13 @@ Example: `saucedemo-cy-hp-01-single-item-checkout.cy.ts`
 
 ```bash
 # SauceDemo Playwright
-npx playwright test --config=Playwright/saucedemo/saucedemo.playwright.config.ts
+npx playwright test --config=qa-framework/frameworks/playwright/playwright.config.ts
 
 # Cypress (interactive)
-npx cypress open --config-file Cypress/cypress.config.ts
+npx cypress open --config-file qa-framework/frameworks/cypress/cypress.config.ts
 
 # Cypress (headless)
-npx cypress run --config-file Cypress/cypress.config.ts
+npx cypress run --config-file qa-framework/frameworks/cypress/cypress.config.ts
 ```
 
 ## Branch Strategy

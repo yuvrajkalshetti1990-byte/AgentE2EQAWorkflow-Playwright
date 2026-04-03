@@ -3,12 +3,12 @@ on:
   push:
     branches: [ main, master, dev, auto/** ]
     paths:
-      - 'Playwright/**'
+      - 'qa-framework/frameworks/playwright/**'
       - '.github/workflows/playwright.yml'
   pull_request:
     branches: [ main, master, dev ]
     paths:
-      - 'Playwright/**'
+      - 'qa-framework/frameworks/playwright/**'
   workflow_dispatch:
     inputs:
       ref:
@@ -47,20 +47,20 @@ jobs:
     - name: "DEBUG: List test specs"
       run: |
         echo "::group::Playwright specs found"
-        find Playwright/saucedemo/tests -name "*.spec.ts" ! -name "*.notimplemented.spec.ts" 2>/dev/null | sort || echo "(none)"
+        find qa-framework/frameworks/playwright/tests -name "*.spec.ts" ! -name "*.notimplemented.spec.ts" 2>/dev/null | sort || echo "(none)"
         echo "---"
         echo "Ignored stubs:"
-        find Playwright/saucedemo/tests -name "*.notimplemented.spec.ts" 2>/dev/null | sort || echo "(none)"
+        find qa-framework/frameworks/playwright/tests -name "*.notimplemented.spec.ts" 2>/dev/null | sort || echo "(none)"
         echo "::endgroup::"
 
     - name: Run SauceDemo Playwright tests
-      run: npx playwright test --config=Playwright/saucedemo/saucedemo.playwright.config.ts
+      run: npx playwright test --config=qa-framework/frameworks/playwright/playwright.config.ts
 
     - name: "DEBUG: Test results summary"
       if: always()
       run: |
         echo "::group::Playwright test results"
-        RESULTS_FILE="Playwright/saucedemo/test-results/results.json"
+        RESULTS_FILE="qa-framework/frameworks/playwright/test-results/results.json"
         if [[ -f "$RESULTS_FILE" ]]; then
           echo "results.json found ($(wc -c < "$RESULTS_FILE") bytes)"
           cat "$RESULTS_FILE" | jq '{passed: .stats.expected, failed: .stats.unexpected, skipped: .stats.skipped, duration: .stats.duration}' 2>/dev/null || \
@@ -68,20 +68,20 @@ jobs:
         else
           echo "::warning::results.json NOT found at $RESULTS_FILE"
           echo "test-results dir contents:"
-          ls -la Playwright/saucedemo/test-results/ 2>/dev/null || echo "(directory missing)"
+          ls -la qa-framework/frameworks/playwright/test-results/ 2>/dev/null || echo "(directory missing)"
         fi
         echo "::endgroup::"
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:
         name: saucedemo-playwright-report
-        path: Playwright/saucedemo/playwright-report/
+        path: qa-framework/frameworks/playwright/playwright-report/
         retention-days: 30
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:
         name: saucedemo-test-results-json
-        path: Playwright/saucedemo/test-results/results.json
+        path: qa-framework/frameworks/playwright/test-results/results.json
         retention-days: 30
 
 

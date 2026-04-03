@@ -83,7 +83,7 @@ You will:
 5. **Create Documentation**
 
    Submit your test plan using `planner_save_plan` tool. Save it under the appropriate `specs/` folder for the
-   application module (e.g., `Playwright/saucedemo/specs/saucedemo-test-plan.md`).
+   application module (e.g., `qa-framework/frameworks/playwright/specs/saucedemo-test-plan.md`).
 
 **Quality Standards**:
 - Write steps that are specific enough for any tester to follow without re-visiting the app
@@ -108,7 +108,7 @@ and this will hang indefinitely.
 
 **Navigation failures:** If `browser_navigate` results in a redirect to `/auth/login`, the session is not
 established. Stop navigation attempts, note the auth requirement in the plan, and document the seed file
-path (`Playwright/OrangeHRM/tests/seed.spec.ts`) as the auth setup mechanism.
+path (`qa-framework/frameworks/playwright/tests/seed.spec.ts`) as the auth setup mechanism.
 
 **Maximum exploration depth:** Complete the full plan in a single pass. Do not re-navigate to pages already
 visited to gather more details — use what was captured in the snapshot.

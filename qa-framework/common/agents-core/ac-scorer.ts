@@ -256,7 +256,7 @@ ${missingList}
  *
  * Action Required:
  *   1. Resolve the missing pieces listed above.
- *   2. Move this file to: Playwright/saucedemo/tests/${slug}/
+ *   2. Move this file to: qa-framework/frameworks/playwright/tests/${slug}/
  *   3. Remove the .notimplemented extension and implement the test.
  */
 
@@ -281,7 +281,7 @@ ${missingList}
  *
  * Action Required:
  *   1. Resolve the missing pieces listed above.
- *   2. Move this file to: Cypress/cypress/e2e/${slug}/
+ *   2. Move this file to: qa-framework/frameworks/cypress/tests/${slug}/
  *   3. Remove the .notimplemented extension and implement the test.
  */
 

@@ -1,5 +1,5 @@
 ---
-applyTo: "Cypress/**"
+applyTo: "qa-framework/frameworks/cypress/**"
 ---
 
 # Cypress Folder — Agent and MCP Routing
@@ -30,7 +30,7 @@ There is no MCP-based Cypress test runner. Tests must be run manually via CLI or
 
 When adding tests for a new app to Cypress:
 
-1. Add a subfolder under `Cypress/cypress/e2e/{story-slug}/`
+1. Add a subfolder under `qa-framework/frameworks/cypress/tests/{story-slug}/`
 
 2. Spec naming convention:
    ```
@@ -38,7 +38,7 @@ When adding tests for a new app to Cypress:
    ```
    Example: `mynewapp-cy-login-01-valid-credentials.cy.ts`
 
-3. If the app requires login, set up session caching in `Cypress/cypress/support/commands.ts`:
+3. If the app requires login, set up session caching in `qa-framework/frameworks/cypress/support/commands.ts`:
    ```typescript
    Cypress.Commands.add('loginAs', (username, password) => {
      cy.session([username, password], () => {
@@ -50,7 +50,7 @@ When adding tests for a new app to Cypress:
    });
    ```
 
-4. Add any shared fixtures to `Cypress/cypress/fixtures/`
+4. Add any shared fixtures to `qa-framework/frameworks/cypress/fixtures/`
 
 5. Use `@playwright-test-planner` to generate the test plan, then `@cypress-test-generator` per scenario.
 
@@ -58,11 +58,11 @@ When adding tests for a new app to Cypress:
 
 ```bash
 # Interactive (Cypress Test Runner)
-npx cypress open --config-file Cypress/cypress.config.ts
+npx cypress open --config-file qa-framework/frameworks/cypress/cypress.config.ts
 
 # Headless CI run
-npx cypress run --config-file Cypress/cypress.config.ts
+npx cypress run --config-file qa-framework/frameworks/cypress/cypress.config.ts
 
 # Single spec
-npx cypress run --config-file Cypress/cypress.config.ts --spec "Cypress/cypress/e2e/{folder}/*.cy.ts"
+npx cypress run --config-file qa-framework/frameworks/cypress/cypress.config.ts --spec "qa-framework/frameworks/cypress/tests/{folder}/*.cy.ts"
 ```

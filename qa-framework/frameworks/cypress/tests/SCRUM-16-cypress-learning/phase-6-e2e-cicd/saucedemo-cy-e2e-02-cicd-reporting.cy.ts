@@ -5,7 +5,7 @@
 // The real deliverable is the package.json "test" script and reporter config.
 //
 // Setup checklist (outside this file):
-//   1. In package.json:        "test": "cypress run --config-file Cypress/cypress.config.ts"
+//   1. In package.json:        "test": "cypress run --config-file qa-framework/frameworks/cypress/cypress.config.ts"
 //   2. npm install cypress-mochawesome-reporter --save-dev
 //   3. In cypress.config.ts:   reporter + reporterOptions for mochawesome
 //   4. Run: npm run test  →  open cypress/reports/index.html

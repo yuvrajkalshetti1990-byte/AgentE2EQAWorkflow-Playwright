@@ -140,18 +140,14 @@ Jira: Move story to "Ready for QA"
 ── WORKFLOW 2 ─────────────────────────────────────────────────────────────────
 [playwright.yml]  — triggered on push to  auto/test-*  branches
 
-  Job 1: test-saucedemo
-          • npx playwright test --config=Playwright/saucedemo/saucedemo.playwright.config.ts
+  Job: test-saucedemo
+          • npx playwright test --config=qa-framework/frameworks/playwright/playwright.config.ts
           • Uploads: saucedemo-results.json artifact
 
-  Job 2: test-orangehrm
-          • Preflight: curl check that OrangeHRM is reachable
-          • Runs seed.spec.ts first (saves auth session to .auth/admin.json)
-          • npx playwright test --config=Playwright/OrangeHRM/orangehrm.playwright.config.ts
-          • Uploads: orangehrm-results.json artifact
+  [cypress.yml]  — triggered separately for Cypress stories
 
-  Job 3: test-cypress
-          • npx cypress run --config-file Cypress/cypress.config.ts
+  Job: test-cypress
+          • npx cypress run --config-file qa-framework/frameworks/cypress/cypress.config.ts
           • Uploads: cypress-results.json artifact
 ─────────────────────────────────────────────────────────────────────────────
 
@@ -227,16 +223,13 @@ Jira label "cypress" present → Cypress
 
 ```bash
 # SauceDemo (Playwright)
-npx playwright test --config=Playwright/saucedemo/saucedemo.playwright.config.ts
-
-# OrangeHRM (Playwright)
-npx playwright test --config=Playwright/OrangeHRM/orangehrm.playwright.config.ts
+npx playwright test --config=qa-framework/frameworks/playwright/playwright.config.ts
 
 # Cypress (headless)
-npx cypress run --config-file Cypress/cypress.config.ts
+npx cypress run --config-file qa-framework/frameworks/cypress/cypress.config.ts
 
 # Cypress (interactive)
-npx cypress open --config-file Cypress/cypress.config.ts
+npx cypress open --config-file qa-framework/frameworks/cypress/cypress.config.ts
 ```
 
 ---
@@ -256,8 +249,8 @@ npx cypress open --config-file Cypress/cypress.config.ts
     cypress-test-generator.agent.md
     ac-reviewer.agent.md
   instructions/
-    playwright.instructions.md    (applyTo: Playwright/**)
-    cypress.instructions.md       (applyTo: Cypress/**)
+    playwright.instructions.md    (applyTo: qa-framework/frameworks/playwright/**)
+    cypress.instructions.md       (applyTo: qa-framework/frameworks/cypress/**)
   copilot-instructions.md         ← Global agent routing table
   WORKFLOW-GUIDE.md               ← This file
 

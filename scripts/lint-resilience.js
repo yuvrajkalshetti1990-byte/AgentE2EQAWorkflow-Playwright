@@ -27,8 +27,8 @@ function scan(dir) {
   }
 }
 
-scan('Cypress/cypress/e2e');
-scan('Cypress/cypress/pages');
+scan('qa-framework/frameworks/cypress/tests');
+scan('qa-framework/frameworks/cypress/pages');
 
 if (violations.length) {
   console.error('LINT FAIL: Raw cy.visit() or cy.request() detected.');

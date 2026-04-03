@@ -75,7 +75,7 @@ function scan(dir) {
   }
 }
 
-scan('Cypress/cypress/e2e');
+scan('qa-framework/frameworks/cypress/tests');
 
 if (violations.length) {
   console.error('FIXTURE VALIDATION FAIL: undeclared fixture(s) found.');

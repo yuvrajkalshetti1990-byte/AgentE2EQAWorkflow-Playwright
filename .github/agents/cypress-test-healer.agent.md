@@ -195,7 +195,7 @@ If `@requiredFixtures` already exists, append the missing name to the array:
 // @requiredFixtures: ["users.json", "checkout-user.json"]
 ```
 
-**Step 3:** Verify `REQUIRED_FIXTURES` in `Cypress/cypress.config.ts` contains a default for this filename.
+**Step 3:** Verify `REQUIRED_FIXTURES` in `qa-framework/frameworks/cypress/cypress.config.ts` contains a default for this filename.
 If it does not, add an entry:
 ```ts
 // Inside REQUIRED_FIXTURES object in cypress.config.ts

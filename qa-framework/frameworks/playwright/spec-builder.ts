@@ -33,7 +33,7 @@ export interface PlaywrightTestSpec {
   }>;
   /** Import path for page objects if any (relative from test file location) */
   pageObjectImports?: string[];
-  /** Path to seed file if one is needed (e.g. Playwright/saucedemo/tests/seed.spec.ts) */
+  /** Path to seed file if one is needed (e.g. qa-framework/frameworks/playwright/tests/seed.spec.ts) */
   seedFile?: string;
 }
 
