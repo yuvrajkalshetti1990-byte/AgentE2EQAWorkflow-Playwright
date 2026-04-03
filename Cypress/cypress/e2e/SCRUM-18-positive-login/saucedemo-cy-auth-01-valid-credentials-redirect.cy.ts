@@ -7,6 +7,8 @@ const loginPage = new LoginPage();
 
 describe('SCRUM-18 | Positive Login Path – Redirect to Inventory', () => {
   beforeEach(() => {
+    cy.clearAllCookies();
+    cy.clearAllLocalStorage(); // Clears saucedemo.com localStorage for all visited origins (Cypress 12+)
     loginPage.visit();
   });
 

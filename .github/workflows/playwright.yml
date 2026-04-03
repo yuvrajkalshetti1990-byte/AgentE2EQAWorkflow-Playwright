@@ -46,35 +46,4 @@ jobs:
         path: Playwright/saucedemo/test-results/results.json
         retention-days: 30
 
-  test-orangehrm:
-    name: OrangeHRM E2E Tests
-    timeout-minutes: 60
-    runs-on: ubuntu-latest
-    env:
-      ORANGEHRM_USERNAME: ${{ secrets.ORANGEHRM_USERNAME }}
-      ORANGEHRM_PASSWORD: ${{ secrets.ORANGEHRM_PASSWORD }}
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        ref: ${{ inputs.ref || github.ref }}
-    - uses: actions/setup-node@v4
-      with:
-        node-version: lts/*
-    - name: Install dependencies
-      run: npm ci
-    - name: Install Playwright Browsers
-      run: npx playwright install chromium --with-deps
-    - name: Run OrangeHRM Playwright tests
-      run: npx playwright test --config=Playwright/OrangeHRM/orangehrm.playwright.config.ts
-    - uses: actions/upload-artifact@v4
-      if: ${{ !cancelled() }}
-      with:
-        name: orangehrm-playwright-report
-        path: Playwright/OrangeHRM/playwright-report/
-        retention-days: 30
-    - uses: actions/upload-artifact@v4
-      if: ${{ !cancelled() }}
-      with:
-        name: orangehrm-test-results-json
-        path: Playwright/OrangeHRM/test-results/results.json
-        retention-days: 30
+

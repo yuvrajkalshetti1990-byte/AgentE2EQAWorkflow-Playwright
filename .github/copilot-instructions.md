@@ -40,9 +40,7 @@ for test generation or healing; the agent handles that.
 ## Project Structure
 
 - `Playwright/saucedemo/` — SauceDemo Playwright tests. Config: `Playwright/saucedemo/saucedemo.playwright.config.ts`
-- `Playwright/OrangeHRM/` — OrangeHRM Playwright tests. Config: `Playwright/OrangeHRM/orangehrm.playwright.config.ts`
-- `Playwright/OrangeHRM/tests/seed.spec.ts` — Auth setup (runs first, saves session to `.auth/admin.json`)
-- `Playwright/OrangeHRM/tests/orangehrm-e2e/{story-slug}/` — One folder per Jira story
+- `Playwright/saucedemo/tests/` — One subfolder per Jira story
 - `Cypress/` — Cypress tests. Config: `Cypress/cypress.config.ts`
 - `Cypress/cypress/e2e/{story-slug}/` — One folder per Jira story
 - `.github/agents/` — Custom agent definitions
@@ -67,9 +65,6 @@ Example: `saucedemo-cy-hp-01-single-item-checkout.cy.ts`
 ```bash
 # SauceDemo Playwright
 npx playwright test --config=Playwright/saucedemo/saucedemo.playwright.config.ts
-
-# OrangeHRM Playwright
-npx playwright test --config=Playwright/OrangeHRM/orangehrm.playwright.config.ts
 
 # Cypress (interactive)
 npx cypress open --config-file Cypress/cypress.config.ts

@@ -24,8 +24,8 @@ function setupLoginSession(username: string, password: string): void {
     },
     {
       validate() {
-        // Confirm the session is still valid on restore — localStorage key set by SauceDemo
-        cy.window().its('localStorage').invoke('getItem', 'session-username').should('not.be.null');
+        // Confirm the session is still valid — check we are on the inventory page
+        cy.url().should('include', '/inventory.html');
       },
     }
   );

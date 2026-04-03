@@ -16,12 +16,6 @@ node_modules/
 /Playwright/saucedemo/playwright-report/
 /Playwright/saucedemo/.auth/
 
-# Playwright/OrangeHRM artifacts
-/Playwright/OrangeHRM/playwright-report/
-/Playwright/OrangeHRM/test-results/
-!/Playwright/OrangeHRM/test-results/*.md
-/Playwright/OrangeHRM/.auth/
-
 # Cypress artifacts
 /Cypress/cypress/videos/
 /Cypress/cypress/results/

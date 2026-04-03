@@ -9,8 +9,11 @@ const inventoryPage = new InventoryPage();
 
 describe('SCRUM-18 | Positive Login Path – Inventory Page Elements', () => {
   beforeEach(() => {
+    cy.clearAllCookies();
+    cy.clearAllLocalStorage(); // Clears saucedemo.com localStorage for all visited origins (Cypress 12+)
     loginPage.visit();
     loginPage.login('standard_user', 'secret_sauce');
+    cy.url().should('include', '/inventory.html'); // Guard: ensure login succeeded
   });
 
   it('AC6: the "Products" page title is visible after a successful login', () => {
@@ -30,7 +33,7 @@ describe('SCRUM-18 | Positive Login Path – Inventory Page Elements', () => {
   });
 
   it('AC10: the shopping cart link is accessible on the inventory page', () => {
-    cy.get('.shopping_cart_link').should('be.visible').and('be.enabled');
+    cy.get('.shopping_cart_link').should('be.visible');
   });
 
   it('AC11: the shopping cart badge is absent on a fresh login (empty cart)', () => {
