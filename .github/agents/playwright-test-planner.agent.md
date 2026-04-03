@@ -93,3 +93,22 @@ You will:
 
 **Output Format**: Always save the complete test plan as a markdown file with clear headings, numbered steps, and
 professional formatting suitable for sharing with development and QA teams.
+
+## Loop Prevention — MANDATORY
+
+**`browser_wait_for` has a hard limit of 10 seconds.** If an element does not appear within 10 seconds,
+do NOT retry the same wait. Instead:
+1. Take a `browser_snapshot` to see what is actually on the page
+2. If the page shows a login form, navigate to the correct URL with credentials in the URL or use
+   `browser_navigate` to the authenticated entry point
+3. If the page shows a 503/504, note it in the plan as "demo site unavailable" and skip that section
+
+**Never call `browser_wait_for` with `state: 'networkidle'`** — OrangeHRM never fully reaches networkidle
+and this will hang indefinitely.
+
+**Navigation failures:** If `browser_navigate` results in a redirect to `/auth/login`, the session is not
+established. Stop navigation attempts, note the auth requirement in the plan, and document the seed file
+path (`Playwright/OrangeHRM/tests/seed.spec.ts`) as the auth setup mechanism.
+
+**Maximum exploration depth:** Complete the full plan in a single pass. Do not re-navigate to pages already
+visited to gather more details — use what was captured in the snapshot.
