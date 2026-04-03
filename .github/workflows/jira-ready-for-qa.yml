@@ -414,6 +414,8 @@ jobs:
           echo "Jira comment posted"
 
       - name: Trigger Playwright tests on feature branch
+        continue-on-error: true   # GITHUB_TOKEN cannot dispatch workflow_dispatch (platform restriction).
+                                  # playwright.yml auto-triggers on Copilot's push to auto/** anyway.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BRANCH: ${{ steps.branch.outputs.BRANCH }}
