@@ -409,3 +409,15 @@ jobs:
             "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY/comment" \
             -d "{\"body\":{\"version\":1,\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Automation pipeline triggered. Copilot is generating tests. Branch: $BRANCH | Issue: $GH_ISSUE_URL\"}]}]}}"
           echo "Jira comment posted"
+
+      - name: Trigger Playwright tests on feature branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.branch.outputs.BRANCH }}
+        run: |
+          # Explicitly dispatch playwright.yml — GITHUB_TOKEN push suppresses push events
+          # so we must trigger downstream tests via API call instead.
+          gh workflow run playwright.yml \
+            --ref "$BRANCH" \
+            --field ref="$BRANCH"
+          echo "Playwright workflow triggered on $BRANCH"

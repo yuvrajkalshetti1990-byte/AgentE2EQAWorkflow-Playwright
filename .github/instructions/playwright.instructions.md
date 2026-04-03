@@ -77,3 +77,40 @@ Example: `mynewapp-tc-login-01-valid-credentials.spec.ts`
 ```bash
 npx playwright test --config=Playwright/{appname}/{appname}.playwright.config.ts
 ```
+
+## Selector Best Practices — OrangeHRM
+
+Certain generic selectors match multiple elements in OrangeHRM and MUST NOT be used without a parent scope.
+Using them will trigger Playwright strict mode violations and cause the generator/healer agent to loop.
+
+**Banned patterns (without scope):**
+- `input[type="checkbox"]` → use `page.getByLabel('Create Login Details')` or similar labelled selector
+- `button[type="submit"]` → use `page.getByRole('button', { name: 'Save' })`
+- `.oxd-input` / `.oxd-input--active` → use `page.getByLabel('...')` or scope to nearest form container
+- `.last()` on a class-based locator → take a snapshot first to identify the unique element
+
+**Preferred selector order:**
+1. `getByRole` with `name` option
+2. `getByLabel`
+3. `getByText`
+4. Attribute selector scoped to a parent: `page.locator('.oxd-form [name="firstName"]')`
+
+## OrangeHRM-Specific Notes
+
+- The Add Employee page has at least **two** `button[type="submit"]` elements — always use `getByRole('button', { name: 'Save' })`
+- The Employee ID field does not have a reliable class-based selector during form fill — capture it via `page.locator('label:has-text("Employee Id") + div input').inputValue()`  
+- The "Create Login Details" toggle is a switch input — use `page.getByLabel('Create Login Details')` or `page.locator('.orangehrm-switch-wrapper').getByRole('checkbox')`
+- Success toast auto-dismisses within ~3 s — assert it immediately after navigation, or assert URL + heading instead
+- **Delete/Edit buttons in table rows**: scope to the row first using `hasText`, never use a raw snapshot `ref`:
+  ```ts
+  // Delete a specific employee row
+  await page.locator('tr', { hasText: 'EmployeeName' }).getByRole('button', { name: /delete/i }).click();
+  // Confirm the dialog
+  await page.getByRole('button', { name: 'Yes, Delete' }).click();
+  ```
+
+## Snapshot Refs — Never Use as Locators
+
+`ref` values (e.g. `e1596`) from Playwright MCP snapshots are ephemeral and valid only for that
+snapshot. Using them in a subsequent tool call silently fails and causes infinite retry loops.
+Always convert snapshot refs into stable semantic selectors before using them.

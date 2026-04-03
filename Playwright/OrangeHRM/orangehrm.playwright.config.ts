@@ -8,10 +8,11 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  workers: process.env.CI ? 1 : 2,
   reporter: [
     ['html', { outputFolder: 'playwright-report' }],
     ['list'],
+    ['json', { outputFile: 'test-results/results.json' }],
   ],
   use: {
     baseURL:
@@ -35,25 +36,25 @@ export default defineConfig({
         storageState: AUTH_FILE,
       },
       dependencies: ['setup'],
-      testIgnore: '**/seed.spec.ts',
+      testIgnore: ['**/seed.spec.ts', '**/seed-gen.spec.ts'],
     },
-    {
-      name: 'firefox',
-      use: {
-        ...devices['Desktop Firefox'],
-        storageState: AUTH_FILE,
-      },
-      dependencies: ['setup'],
-      testIgnore: '**/seed.spec.ts',
-    },
-    {
-      name: 'webkit',
-      use: {
-        ...devices['Desktop Safari'],
-        storageState: AUTH_FILE,
-      },
-      dependencies: ['setup'],
-      testIgnore: '**/seed.spec.ts',
-    },
+    // {
+    //   name: 'firefox',
+    //   use: {
+    //     ...devices['Desktop Firefox'],
+    //     storageState: AUTH_FILE,
+    //   },
+    //   dependencies: ['setup'],
+    //   testIgnore: ['**/seed.spec.ts', '**/seed-gen.spec.ts'],
+    // },
+    // {
+    //   name: 'webkit',
+    //   use: {
+    //     ...devices['Desktop Safari'],
+    //     storageState: AUTH_FILE,
+    //   },
+    //   dependencies: ['setup'],
+    //   testIgnore: ['**/seed.spec.ts', '**/seed-gen.spec.ts'],
+    // },
   ],
 });

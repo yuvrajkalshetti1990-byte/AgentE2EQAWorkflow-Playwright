@@ -61,3 +61,21 @@ Key principles:
   of the expected behavior.
 - Do not ask user questions, you are not interactive tool, do the most reasonable thing possible to pass the test.
 - Never wait for networkidle or use other discouraged or deprecated apis
+
+## Loop Prevention — MANDATORY
+
+**Maximum 3 fix attempts per failing test.** If a test still fails after 3 distinct code changes, mark it
+`test.fixme()` with a comment explaining what was tried and why it is failing. Do not attempt a 4th fix.
+
+**After every fix attempt**, run `test_run` to verify. If the output is identical to the previous run
+(same error, same line), your fix did not take effect — do NOT make the same or similar change again.
+Instead, take a `browser_snapshot` to inspect the current page state before trying a different approach.
+
+**Stale snapshot refs (`e1596`, `e1023`, etc.) are never valid selectors.** They are ephemeral IDs from
+a single snapshot. If a selector derived from a ref fails, take a fresh `browser_snapshot` and derive
+a semantic selector (`getByRole`, `getByLabel`, `locator('tr', { hasText: ... })`).
+
+**OrangeHRM demo-specific issues that are NOT test bugs — mark fixme immediately:**
+- "Session expired" or redirect to login mid-test → the demo site reset; not fixable in test code
+- Employee not found after creation → demo data was wiped between runs; not fixable in test code
+- 503 / 504 from demo server → infrastructure issue; not fixable in test code

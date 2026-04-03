@@ -73,3 +73,25 @@ describe('Feature name', () => {
 - To run the generated tests locally: `npx cypress run --config-file Cypress/cypress.config.ts`
 - To open Cypress Test Runner: `npx cypress open --config-file Cypress/cypress.config.ts`
 - There is no MCP-based Cypress runner — healing and debugging must be done manually or by re-inspecting the UI
+
+## Loop Prevention — MANDATORY
+
+**If `browser_navigate` results in a redirect to a login page**, do NOT navigate again to the same URL.
+The site requires authentication. Instead:
+1. First navigate to the login page (`https://opensource-demo.orangehrmlive.com/web/index.php/auth/login`)
+2. Use `browser_type` + `browser_click` to log in with credentials `Admin` / `admin123`
+3. Then navigate to the target page
+4. Only attempt login once — if login itself fails (wrong credentials, 503), stop and document the issue
+
+**Snapshot refs (`e1596`, `e1023`, etc.) are ephemeral.** Never use a raw ref as a selector in generated
+Cypress code or in any `browser_click` call. Always derive a stable `cy.get()` / `cy.contains()` selector
+from the snapshot content.
+
+**`browser_wait_for` timeout is 10 seconds maximum.** If an element does not appear:
+1. Take a fresh `browser_snapshot`
+2. If the page state is unexpected, document what was found and write the test based on the actual observed UI
+3. Do not retry the same wait
+
+**Maximum 2 exploration passes per page.** If you cannot identify the selector after 2 snapshots of the
+same page, write the test with a `// TODO: verify selector` comment and move on. Do not re-navigate
+repeatedly.
