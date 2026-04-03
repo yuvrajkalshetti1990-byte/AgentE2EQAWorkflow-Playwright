@@ -14,7 +14,7 @@ Cypress.Commands.add('login', (username?: string, password?: string) => {
     || 'secret_sauce';
 
   cy.log(`[login] user=${user}`);
-  cy.visit('https://www.saucedemo.com/');
+  cy.safeVisit('https://www.saucedemo.com/');
   cy.get('[data-test="username"]').clear().type(user);
   cy.get('[data-test="password"]').clear().type(pass);
   cy.get('[data-test="login-button"]').click();

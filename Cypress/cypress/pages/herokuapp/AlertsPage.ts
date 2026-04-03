@@ -4,7 +4,7 @@ export class AlertsPage {
   private readonly resultText      = '#result';
 
   visit(): void {
-    cy.visit('https://the-internet.herokuapp.com/javascript_alerts');
+    cy.safeVisit('https://the-internet.herokuapp.com/javascript_alerts');
   }
 
   clickJsAlert(): void {

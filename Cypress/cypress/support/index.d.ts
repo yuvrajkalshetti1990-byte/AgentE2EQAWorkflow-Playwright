@@ -34,6 +34,17 @@ declare global {
         iframeSelector: string,
         callback: ($body: JQuery<HTMLBodyElement>) => void
       ): Chainable<void>;
+
+      /**
+       * Alias for cy.task('ensureFixtures', ...).
+       * Reads @requiredFixtures metadata from the running spec and creates
+       * any missing fixture files via the Node-side task in cypress.config.ts.
+       */
+      task(
+        event: 'ensureFixtures',
+        arg: { specFile: string },
+        options?: Partial<Loggable & Timeoutable>
+      ): Chainable<null>;
     }
   }
 }

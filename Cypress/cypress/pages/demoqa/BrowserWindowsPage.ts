@@ -3,7 +3,7 @@ export class BrowserWindowsPage {
   private readonly newWindowButton = '#windowButton';
 
   visit(): void {
-    cy.visit('https://demoqa.com/browser-windows');
+    cy.safeVisit('https://demoqa.com/browser-windows');
   }
 
   clickNewTab(): void {

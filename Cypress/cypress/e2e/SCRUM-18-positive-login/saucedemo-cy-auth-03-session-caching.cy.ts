@@ -16,7 +16,7 @@ function setupLoginSession(username: string, password: string): void {
   cy.session(
     [username, password],
     () => {
-      cy.visit('/');
+      cy.safeVisit('/');
       cy.get('[data-test="username"]').type(username);
       cy.get('[data-test="password"]').type(password);
       cy.get('[data-test="login-button"]').click();
@@ -34,7 +34,7 @@ function setupLoginSession(username: string, password: string): void {
 describe('SCRUM-18 | Positive Login Path – Session Caching', () => {
   beforeEach(() => {
     setupLoginSession(SESSION_USER, SESSION_PASS);
-    cy.visit('/inventory.html');
+    cy.safeVisit('/inventory.html');
   });
 
   it('AC14: a cached session lands directly on the inventory page without re-entering credentials', () => {
@@ -46,10 +46,10 @@ describe('SCRUM-18 | Positive Login Path – Session Caching', () => {
   });
 
   it('AC16: the session remains valid after navigating away and returning to inventory', () => {
-    cy.visit('/cart.html');
+    cy.safeVisit('/cart.html');
     cy.url().should('include', '/cart.html');
 
-    cy.visit('/inventory.html');
+    cy.safeVisit('/inventory.html');
     inventoryPage.assertOnPage();
   });
 
@@ -60,7 +60,7 @@ describe('SCRUM-18 | Positive Login Path – Session Caching', () => {
 
   it('AC18: problem_user session is also cached and resolves to /inventory.html', () => {
     setupLoginSession('problem_user', SESSION_PASS);
-    cy.visit('/inventory.html');
+    cy.safeVisit('/inventory.html');
     inventoryPage.assertOnPage();
   });
 });

@@ -9,7 +9,7 @@ describe('SCRUM-34 | Assignment 18: Mocking Network Responses (Negative UI Testi
       body: { error: 'Server Down' },
     }).as('serverError');
 
-    cy.visit('https://reqres.in/');
+    cy.safeVisit('https://reqres.in/');
 
     // Confirm the stub was used
     cy.wait('@serverError');

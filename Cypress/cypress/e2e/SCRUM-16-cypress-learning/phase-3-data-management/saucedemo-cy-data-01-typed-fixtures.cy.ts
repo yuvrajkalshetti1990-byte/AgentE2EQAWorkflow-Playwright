@@ -25,7 +25,7 @@ describe('SCRUM-25 | Assignment 9: Strongly Typed Fixtures', () => {
         if (user.expectedStatus === 'success') {
           cy.url().should('include', 'inventory');
           // Return to login page for next iteration
-          cy.visit('https://www.saucedemo.com/');
+          cy.safeVisit('https://www.saucedemo.com/');
         } else {
           cy.url().should('not.include', 'inventory');
           cy.get('[data-test="error"]').should('be.visible');

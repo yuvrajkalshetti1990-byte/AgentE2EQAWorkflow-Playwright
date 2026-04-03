@@ -4,7 +4,7 @@ export class FileUploadPage {
   private readonly uploadedFile = '#uploaded-files';
 
   visit(): void {
-    cy.visit('https://the-internet.herokuapp.com/upload');
+    cy.safeVisit('https://the-internet.herokuapp.com/upload');
   }
 
   selectFile(fixturePath: string): void {

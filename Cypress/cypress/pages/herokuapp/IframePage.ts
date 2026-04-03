@@ -2,7 +2,7 @@ export class IframePage {
   private readonly iframeSelector = '#mce_0_ifr';
 
   visit(): void {
-    cy.visit('https://the-internet.herokuapp.com/iframe');
+    cy.safeVisit('https://the-internet.herokuapp.com/iframe');
   }
 
   /**

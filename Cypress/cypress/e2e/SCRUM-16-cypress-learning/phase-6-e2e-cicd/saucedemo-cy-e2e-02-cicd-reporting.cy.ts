@@ -12,7 +12,7 @@
 
 describe('SCRUM-36 | Assignment 20: CI/CD & HTML Reporting', () => {
   it('should run headlessly and confirm the SauceDemo login page loads', () => {
-    cy.visit('https://www.saucedemo.com/');
+    cy.safeVisit('https://www.saucedemo.com/');
     cy.title().should('eq', 'Swag Labs');
     cy.get('[data-test="login-button"]').should('be.visible');
   });

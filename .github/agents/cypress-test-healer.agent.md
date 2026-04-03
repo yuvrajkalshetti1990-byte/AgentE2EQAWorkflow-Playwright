@@ -49,12 +49,16 @@ Classify every failure into one of these categories before acting:
 | Category | Trigger Pattern | Auto-fixable | Move to notimplemented |
 |----------|----------------|-------------|----------------------|
 | `API_KEY_MISSING` | "x-api-key header is required" | ✅ yes | no |
+| `RAW_VISIT` | `cy.visit(` found in spec or page object | ✅ yes | no |
+| `RAW_REQUEST` | `cy.request(` found in spec (not in commands.ts) | ✅ yes | no |
 | `ENV_MISSING` | `cy.type()` received `undefined`/`null` | ✅ yes | no |
 | `DATA_MISSING` | "fixture file could not be found", `ENOENT` | ✅ yes | no |
 | `SELECTOR_ISSUE` | `cy.get()` timeout, "not exist in the DOM" | ✅ yes | no |
 | `NETWORK_FAILURE` | `cy.visit()` status not 2xx, `net::ERR_` | ✅ yes | no |
 | `ASSERTION_FAILURE` | `expected ... to have class`, value mismatch | ✅ yes | no |
 | `IFRAME_ISSUE` | `cy.clear()` failed, "requires a valid clearable element" | ✅ yes | no |
+| `ASYNC_SYNC_ERROR` | `return` inside `.then()`, unexpected value in chain | ✅ yes | no |
+| `AUTH_MISSING` | redirect to login when visiting protected route | ✅ yes | no |
 | `FRAMEWORK_LIMITATION` | non-UI verification, email, database, OS | ❌ no | **yes** |
 | `UNKNOWN` | does not match above | ❌ escalate | no |
 
@@ -74,6 +78,84 @@ cy.apiRequest({ method: 'GET', url: 'https://reqres.in/api/users?page=2' })
 // cy.apiRequest() is defined in cypress/support/commands.ts
 // It injects x-api-key from Cypress.env('REQRES_API_KEY') automatically.
 // cypress.env.json default: "reqres-free-v1"
+```
+
+### RAW_VISIT
+**Trigger:** `cy.visit(` appears in any spec file or page object (**CI lint also catches this**).  
+**Fix:** Replace every `cy.visit()` with `cy.safeVisit()` — applies to ALL paths including relative ones:
+```ts
+// BEFORE (all of these are invalid)
+cy.visit('https://www.saucedemo.com/');
+cy.visit('/');
+cy.visit('/inventory.html');
+
+// AFTER
+cy.safeVisit('https://www.saucedemo.com/');
+cy.safeVisit('/');
+cy.safeVisit('/inventory.html');
+```
+Also update page object `visit()` methods if the raw call is there.  
+Exception: `cy.visit()` inside `cypress/support/commands.ts` `safeVisit` implementation itself is valid.
+
+### RAW_REQUEST
+**Trigger:** `cy.request(` appears in a spec file (**CI lint also catches this**).  
+**Fix:** Replace every raw `cy.request()` with `cy.apiRequest()`:
+```ts
+// BEFORE
+cy.request({ method: 'GET', url: 'https://reqres.in/api/users' })
+
+// AFTER
+cy.apiRequest({ method: 'GET', url: 'https://reqres.in/api/users' })
+```
+Exception: `cy.request()` inside `cypress/support/commands.ts` `apiRequest` implementation itself is valid.
+
+### ASYNC_SYNC_ERROR
+**Trigger:** `return` statement inside a `.then()` callback; or a value appears to be ignored.  
+**Fix:** Remove `return` and use either assertions or `cy.wrap()`:
+```ts
+// BEFORE — invalid return
+cy.get('[data-test="title"]').then(($el) => {
+  return $el.text();  // WRONG — does nothing in Cypress
+});
+
+// AFTER option A — assertion only
+cy.get('[data-test="title"]').then(($el) => {
+  expect($el.text()).to.equal('Products');
+});
+
+// AFTER option B — cy.wrap() to continue chain
+cy.get('[data-test="title"]').then(($el) => {
+  cy.wrap($el).should('have.text', 'Products');
+});
+```
+
+### AUTH_MISSING
+**Trigger:** Test visits `/inventory.html`, `/cart.html`, or any protected route and is immediately
+redirected to the login page. URL assertion fails with "expected url to include /inventory but got /".  
+**Fix:** Add login BEFORE any protected visit:
+```ts
+// BEFORE
+beforeEach(() => {
+  cy.safeVisit('/inventory.html');  // redirects to login — test always fails
+});
+
+// AFTER
+beforeEach(() => {
+  cy.login();                       // establish auth first
+  cy.safeVisit('/inventory.html');  // now stays on inventory
+});
+
+// OR with session caching (preferred for multiple tests)
+beforeEach(() => {
+  cy.session(['standard_user', 'secret_sauce'], () => {
+    cy.safeVisit('/');
+    cy.get('[data-test="username"]').type('standard_user');
+    cy.get('[data-test="password"]').type('secret_sauce');
+    cy.get('[data-test="login-button"]').click();
+    cy.url().should('include', '/inventory.html');
+  });
+  cy.safeVisit('/inventory.html');
+});
 ```
 
 ### ENV_MISSING
@@ -122,7 +204,7 @@ cy.get('[data-test="inventory-container"]').should('be.visible');
 
 ### NETWORK_FAILURE
 **Error:** `` `cy.visit()` failed trying to load: https://... Status code was not `2xx` ``  
-**Fix:** Replace `cy.visit()` with `cy.safeVisit()`:
+**Fix:** Replace `cy.visit()` with `cy.safeVisit()` (this should already be done — if it's still raw, classify as `RAW_VISIT` first):
 ```ts
 // BEFORE
 cy.visit('https://www.saucedemo.com/inventory.html');
@@ -130,12 +212,12 @@ cy.visit('https://www.saucedemo.com/inventory.html');
 // AFTER
 cy.safeVisit('https://www.saucedemo.com/inventory.html');
 // cy.safeVisit() adds failOnStatusCode:false and logs the landed URL.
-// Defined in cypress/support/commands.ts.
 ```
 If the URL is consistently unreachable (404/503 across 3 attempts), stub it:
 ```ts
-cy.intercept('GET', 'https://www.saucedemo.com/inventory.html', { statusCode: 200, body: '' });
-cy.visit('https://www.saucedemo.com/inventory.html', { failOnStatusCode: false });
+cy.intercept('GET', '**/inventory.html').as('inventoryPage');
+cy.safeVisit('/inventory.html');
+cy.wait('@inventoryPage');
 ```
 
 ### ASSERTION_FAILURE — focus/blur validation

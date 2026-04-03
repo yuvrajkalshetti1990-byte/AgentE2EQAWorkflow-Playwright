@@ -120,6 +120,50 @@ export default defineConfig({
       const envKeys = Object.keys(config.env);
       console.log(`[preflight] Resolved env vars (${envKeys.length}): ${envKeys.join(', ')}`);
 
+      // ── 6. Per-spec fixture task ──────────────────────────────────────────
+      // Specs that declare  // @requiredFixtures: ['a.json', 'b.json']
+      // get missing fixtures auto-created before the spec runs.
+      // Called from e2e.ts before() hook via cy.task('ensureFixtures', ...).
+      on('task', {
+        ensureFixtures({ specFile }: { specFile: string }): null {
+          const absSpec = path.isAbsolute(specFile)
+            ? specFile
+            : path.join(__dirname, specFile);
+          if (!fs.existsSync(absSpec)) return null;
+
+          const specContent = fs.readFileSync(absSpec, 'utf-8');
+          const match = specContent.match(/@requiredFixtures:\s*(\[[^\]]+\])/);
+          if (!match) return null;
+
+          let fixtures: string[];
+          try {
+            fixtures = JSON.parse(match[1]) as string[];
+          } catch {
+            return null;
+          }
+
+          const fixtureDir = path.join(__dirname, 'cypress', 'fixtures');
+          for (const name of fixtures) {
+            const fp = path.join(fixtureDir, name);
+            if (fs.existsSync(fp)) continue;
+            fs.mkdirSync(path.dirname(fp), { recursive: true });
+            const knownDefault = REQUIRED_FIXTURES[name];
+            if (knownDefault !== undefined) {
+              const body = typeof knownDefault === 'string'
+                ? knownDefault
+                : JSON.stringify(knownDefault, null, 2);
+              fs.writeFileSync(fp, body, 'utf8');
+            } else if (name.endsWith('.json')) {
+              fs.writeFileSync(fp, '{}', 'utf8');
+            } else {
+              fs.writeFileSync(fp, '', 'utf8');
+            }
+            console.log(`[ensureFixtures] Created missing fixture: ${name}`);
+          }
+          return null;
+        },
+      });
+
       return config;
     },
   },

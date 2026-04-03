@@ -38,6 +38,14 @@ before(() => {
     // the missing value and the healer can then classify as ENV_MISSING.
     cy.log(`[preflight] Missing required env vars: ${missing.join(', ')}`);
   }
+
+  // --------------------------------------------------------------------------
+  // Per-spec fixture pre-flight
+  // Reads  // @requiredFixtures: ['a.json', 'b.json']  from the running spec
+  // and calls the ensureFixtures task to create any missing fixture files.
+  // The task is a no-op when no @requiredFixtures annotation is present.
+  // --------------------------------------------------------------------------
+  cy.task('ensureFixtures', { specFile: Cypress.spec.relative }, { log: false });
 });
 
 // ---------------------------------------------------------------------------

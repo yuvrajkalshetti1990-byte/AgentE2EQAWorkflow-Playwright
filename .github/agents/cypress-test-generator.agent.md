@@ -109,22 +109,25 @@ cy.login(); // uses env.username ?? 'standard_user'
 cy.login('problem_user'); // explicit user, still safe
 ```
 
-### Rule 3 — Use cy.safeVisit() for all external URLs
-All external domains (saucedemo.com, reqres.in, demoqa.com, the-internet.herokuapp.com)
-may return non-2xx responses in CI. Always use:
+### Rule 3 — Use cy.safeVisit() for ALL visits — no exceptions
+`cy.visit()` must NEVER appear in generated test files or page objects.
+`cy.safeVisit()` works for both absolute and relative URLs:
 ```ts
-// ❌ FORBIDDEN for external URLs
+// ❌ FORBIDDEN — applies to ALL paths, not just external URLs
 cy.visit('https://www.saucedemo.com/inventory.html');
+cy.visit('/');
+cy.visit('/inventory.html');
 
-// ✅ REQUIRED
-cy.safeVisit('https://www.saucedemo.com/inventory.html');
-// cy.safeVisit() adds failOnStatusCode:false and logs the landed URL
+// ✅ REQUIRED for every single navigation
+cy.safeVisit('https://www.saucedemo.com/');
+cy.safeVisit('/');                    // relative to baseUrl
+cy.safeVisit('/inventory.html');      // relative to baseUrl
+// safeVisit adds failOnStatusCode:false and logs the landed URL automatically
 ```
-`baseUrl` visits (`cy.visit('/')`) are exempt — they go through the configured `baseUrl` and
-use Cypress's own retry logic.
+**This rule is enforced by a CI lint step that will fail the pipeline if any `cy.visit(` is found.**
 
-### Rule 4 — Use cy.apiRequest() for all reqres.in API tests
-reqres.in requires an `x-api-key` header. Never use raw `cy.request()`:
+### Rule 4 — Use cy.apiRequest() for ALL HTTP calls — no exceptions
+`cy.request()` must NEVER appear in generated test files:
 ```ts
 // ❌ FORBIDDEN
 cy.request({ url: 'https://reqres.in/api/users?page=2' });
@@ -133,6 +136,7 @@ cy.request({ url: 'https://reqres.in/api/users?page=2' });
 cy.apiRequest({ url: 'https://reqres.in/api/users?page=2' });
 // Injects x-api-key from Cypress.env('REQRES_API_KEY') (default: 'reqres-free-v1')
 ```
+**This rule is enforced by a CI lint step that will fail the pipeline if any `cy.request(` is found.**
 
 ### Rule 5 — Use cy.withinIframe() for all iframe interactions
 Never interact with iframe content using raw `.its('contentDocument.body')`:
@@ -176,6 +180,69 @@ cy.get('[data-test="firstName"]').then($el => {
 });
 ```
 
+### Rule 8 — Never return values from inside .then() callbacks (async/sync)
+Cypress commands are async-chainable. Returning values from `.then()` is a common bug:
+```ts
+// ❌ FORBIDDEN — returning a value from .then() is a sync/async mismatch
+cy.get('[data-test="title"]').then(($el) => {
+  return $el.text();  // This does nothing in Cypress — never return
+});
+
+// ✅ REQUIRED — assertions only inside .then()
+cy.get('[data-test="title"]').then(($el) => {
+  expect($el.text()).to.equal('Products');
+});
+
+// ✅ REQUIRED — use cy.wrap() when you need to chain further
+cy.get('[data-test="title"]').then(($el) => {
+  cy.wrap($el).should('have.text', 'Products');
+});
+```
+**Never use `return` to pass values out of a `.then()` callback. Use assertions or `cy.wrap()` only.**
+
+### Rule 9 — Login MUST happen before visiting authenticated routes
+Routes like `/inventory.html`, `/cart.html`, `/checkout-step-one.html` redirect to login if
+no session exists. Always establish auth before visiting:
+```ts
+// ❌ FORBIDDEN — visiting protected page before login
+beforeEach(() => {
+  cy.safeVisit('/inventory.html');  // Will redirect to /
+});
+
+// ✅ REQUIRED option A — use cy.login() custom command
+beforeEach(() => {
+  cy.login();
+  cy.safeVisit('/inventory.html');
+});
+
+// ✅ REQUIRED option B — use cy.session() for caching
+beforeEach(() => {
+  cy.session(['standard_user', 'secret_sauce'], () => {
+    cy.safeVisit('/');
+    cy.get('[data-test="username"]').type('standard_user');
+    cy.get('[data-test="password"]').type('secret_sauce');
+    cy.get('[data-test="login-button"]').click();
+    cy.url().should('include', '/inventory.html');
+  });
+  cy.safeVisit('/inventory.html');
+});
+```
+
+### Rule 10 — Declare required fixtures with @requiredFixtures metadata
+If a test needs fixture files, declare them at the top of the spec so the pre-flight
+`ensureFixtures` task creates them automatically if missing:
+```ts
+// @requiredFixtures: ['users.json', 'checkout-user.json']
+
+describe('My Suite', () => {
+  it('uses fixture data', () => {
+    cy.fixture('users.json').then((users) => { ... });
+  });
+});
+```
+Declared fixtures that match known defaults (`users.json`, `checkout-user.json`, `test.txt`)
+are auto-created with correct content. Unknown fixtures get an empty `{}` skeleton.
+
 ## Your workflow for each test
 
 1. **Receive the test plan item** — accept the scenario steps and acceptance criteria from the user
@@ -192,9 +259,12 @@ cy.get('[data-test="firstName"]').then($el => {
 ## Code style
 
 ```typescript
+// @requiredFixtures: ['users.json']  // declare if test needs fixtures
+
 describe('Feature name', () => {
   beforeEach(() => {
-    cy.visit('/path');
+    cy.login();                         // auth first if route requires it
+    cy.safeVisit('/path');              // ALWAYS safeVisit, never cy.visit()
   });
 
   it('should do something', () => {
@@ -206,6 +276,12 @@ describe('Feature name', () => {
 
 ## Key rules
 
+- **NEVER** use `cy.visit()` — always `cy.safeVisit()` (CI lint enforced)
+- **NEVER** use `cy.request()` — always `cy.apiRequest()` (CI lint enforced)
+- **NEVER** use `cy.withinIframe()` — always `cy.withinIframe()` for iframe content
+- **NEVER** return values from inside `.then()` callbacks — use assertions or `cy.wrap()`
+- **ALWAYS** establish auth before visiting protected routes — use `cy.login()` or `cy.session()`
+- **ALWAYS** declare fixture dependencies with `// @requiredFixtures: [...]` metadata
 - Use `cy.get()` with specific selectors — avoid fragile XPath
 - Use `cy.contains()` only for text-based assertions, not for clicks
 - Chain assertions using `.should()` — never use `expect()` inside `then()` unless unavoidable

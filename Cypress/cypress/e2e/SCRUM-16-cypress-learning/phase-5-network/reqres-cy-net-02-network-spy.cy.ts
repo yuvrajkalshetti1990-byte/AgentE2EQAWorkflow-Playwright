@@ -6,7 +6,7 @@ describe('SCRUM-33 | Assignment 17: Spying on Network Calls', () => {
     // Set up the spy BEFORE any navigation or click
     cy.intercept('GET', '/api/users?page=2').as('getUsers');
 
-    cy.visit('https://reqres.in/');
+    cy.safeVisit('https://reqres.in/');
 
     // Trigger the network call (click the button or rely on page-load call)
     // Reqres fires the call automatically on page load; uncomment below if there is a button:
