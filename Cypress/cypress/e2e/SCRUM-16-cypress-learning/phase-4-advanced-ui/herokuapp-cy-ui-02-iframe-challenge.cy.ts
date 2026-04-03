@@ -13,13 +13,17 @@ describe('SCRUM-29 | Assignment 13: The iFrame Challenge', () => {
   it('should type text inside the TinyMCE iframe rich-text editor', () => {
     const expectedText = 'Hello from Cypress and TypeScript!';
 
-    iframePage
-      .getIframeBody()
-      .clear()
-      .type(expectedText);
+    // cy.clear() fails on iframe contenteditable body — use cy.withinIframe() instead.
+    // '{selectall}{del}' clears existing TinyMCE placeholder content before typing.
+    cy.withinIframe('#mce_0_ifr', ($body) => {
+      cy.wrap($body)
+        .focus()
+        .type('{selectall}{del}' + expectedText);
+    });
 
-    iframePage
-      .getIframeBody()
-      .should('have.text', expectedText);
+    // Verify the text was entered correctly
+    cy.withinIframe('#mce_0_ifr', ($body) => {
+      cy.wrap($body).should('have.text', expectedText);
+    });
   });
 });

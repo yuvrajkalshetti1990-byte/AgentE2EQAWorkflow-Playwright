@@ -28,8 +28,11 @@ describe('SCRUM-23 | Assignment 7: Triggering Validation via Focus/Blur', () => 
     // Click into the field, then click away without typing
     checkoutPage.getFirstNameInput().focus().blur();
 
-    // SauceDemo adds the 'error' class to the container on blur without value
-    // TODO: Adjust selector if the exact error class differs in your browser
-    checkoutPage.getFirstNameInput().should('have.class', 'error');
+    // SauceDemo uses 'input_error' (not 'error') as the CSS class on blur without value.
+    // Log actual classes first for observability, then assert with extra timeout for animation.
+    checkoutPage.getFirstNameInput().then(($el) => {
+      cy.log('ASSERT: Classes on firstName field: ' + $el.attr('class'));
+    });
+    checkoutPage.getFirstNameInput().should('have.class', 'input_error', { timeout: 8000 });
   });
 });
