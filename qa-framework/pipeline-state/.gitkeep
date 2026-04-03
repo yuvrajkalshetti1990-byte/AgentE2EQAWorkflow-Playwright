@@ -1,0 +1,3 @@
+# State files are committed to the feature branch by the pipeline.
+# They are not ignored — they are the pipeline's persistent memory.
+# The *.state.json files created here are committed and pushed by Actions.

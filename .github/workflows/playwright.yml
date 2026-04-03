@@ -31,8 +31,46 @@ jobs:
       run: npm ci
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
+
+    - name: "DEBUG: Environment info"
+      run: |
+        echo "::group::Environment"
+        echo "Node: $(node -v)"
+        echo "npm:  $(npm -v)"
+        npx playwright --version
+        echo "OS:   ${{ runner.os }}"
+        echo "Ref:  ${{ inputs.ref || github.ref }}"
+        echo "SHA:  ${{ github.sha }}"
+        echo "Run:  https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        echo "::endgroup::"
+
+    - name: "DEBUG: List test specs"
+      run: |
+        echo "::group::Playwright specs found"
+        find Playwright/saucedemo/tests -name "*.spec.ts" ! -name "*.notimplemented.spec.ts" 2>/dev/null | sort || echo "(none)"
+        echo "---"
+        echo "Ignored stubs:"
+        find Playwright/saucedemo/tests -name "*.notimplemented.spec.ts" 2>/dev/null | sort || echo "(none)"
+        echo "::endgroup::"
+
     - name: Run SauceDemo Playwright tests
       run: npx playwright test --config=Playwright/saucedemo/saucedemo.playwright.config.ts
+
+    - name: "DEBUG: Test results summary"
+      if: always()
+      run: |
+        echo "::group::Playwright test results"
+        RESULTS_FILE="Playwright/saucedemo/test-results/results.json"
+        if [[ -f "$RESULTS_FILE" ]]; then
+          echo "results.json found ($(wc -c < "$RESULTS_FILE") bytes)"
+          cat "$RESULTS_FILE" | jq '{passed: .stats.expected, failed: .stats.unexpected, skipped: .stats.skipped, duration: .stats.duration}' 2>/dev/null || \
+            echo "Partial JSON:" && head -c 2000 "$RESULTS_FILE"
+        else
+          echo "::warning::results.json NOT found at $RESULTS_FILE"
+          echo "test-results dir contents:"
+          ls -la Playwright/saucedemo/test-results/ 2>/dev/null || echo "(directory missing)"
+        fi
+        echo "::endgroup::"
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:

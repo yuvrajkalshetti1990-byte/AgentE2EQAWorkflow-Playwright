@@ -12,9 +12,9 @@ All work inside this folder uses the Cypress framework. Apply the rules below fo
 |------|-------|---------|
 | Create a test plan | `@playwright-test-planner` | `@playwright-test-planner <story or URL>` |
 | Generate a new `.cy.ts` test file | `@cypress-test-generator` | `@cypress-test-generator <test plan item>` |
-| Fix a failing test | Manual — inspect UI with `@cypress-test-generator` | No dedicated healer for Cypress |
+| Fix a failing test | `@cypress-test-healer` | `@cypress-test-healer <error or test file>` |
 
-Never write or edit `.cy.ts` files directly in default agent mode. Always delegate to `@cypress-test-generator`.
+Never write, edit, or fix `.cy.ts` files directly in default agent mode. Always delegate to the appropriate agent above.
 
 ## MCP Servers for This Folder
 

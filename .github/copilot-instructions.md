@@ -15,6 +15,7 @@ always delegate to the correct agent.
 | Generate a new Playwright `.spec.ts` test file | Playwright | `@playwright-test-generator` | `@playwright-test-generator <test plan item>` |
 | Fix a failing or broken Playwright test | Playwright | `@playwright-test-healer` | `@playwright-test-healer <error or test file>` |
 | Generate a new Cypress `.cy.ts` test file | Cypress | `@cypress-test-generator` | `@cypress-test-generator <test plan item>` |
+| Fix a failing or broken Cypress test | Cypress | `@cypress-test-healer` | `@cypress-test-healer <error or test file>` |
 
 If a user asks to "write a test", "create a test", "fix a test", "generate automation", or
 "run tests" — respond by telling them which agent to use and how to invoke it. Do not attempt

@@ -9,6 +9,12 @@ on:
     branches: [ main, master, dev ]
     paths:
       - 'Cypress/**'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch or SHA to test against'
+        required: false
+        default: 'dev'
 
 jobs:
   test-cypress:
@@ -17,6 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref || github.ref }}
 
     - uses: actions/setup-node@v4
       with:
@@ -28,27 +36,91 @@ jobs:
     - name: Install Cypress binary
       run: npx cypress install
 
-    - name: Run Cypress tests
+    - name: "DEBUG: Environment info"
       run: |
-        # Skip if no spec files exist yet
-        SPEC_COUNT=$(find Cypress/cypress/e2e -name "*.cy.ts" 2>/dev/null | wc -l)
-        if [[ "$SPEC_COUNT" -eq 0 ]]; then
-          echo "No Cypress specs found — skipping run"
-          exit 0
-        fi
-        mkdir -p Cypress/cypress/results
+        echo "::group::Environment"
+        echo "Node: $(node -v)"
+        echo "npm:  $(npm -v)"
+        npx cypress version
+        echo "OS:   ${{ runner.os }}"
+        echo "Ref:  ${{ inputs.ref || github.ref }}"
+        echo "SHA:  ${{ github.sha }}"
+        echo "Run:  https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        echo "::endgroup::"
+
+    - name: Count runnable specs
+      id: count_specs
+      run: |
+        # Exclude .notimplemented stubs — they are skipped intentionally
+        SPEC_COUNT=$(find Cypress/cypress/e2e -name "*.cy.ts" ! -name "*.notimplemented.cy.ts" 2>/dev/null | wc -l | tr -d ' ')
+        echo "SPEC_COUNT=$SPEC_COUNT" >> "$GITHUB_OUTPUT"
+
+        echo "::group::Cypress specs found ($SPEC_COUNT runnable)"
+        find Cypress/cypress/e2e -name "*.cy.ts" ! -name "*.notimplemented.cy.ts" 2>/dev/null | sort || echo "(none)"
+        echo "---"
+        echo "Ignored stubs:"
+        find Cypress/cypress/e2e -name "*.notimplemented.cy.ts" 2>/dev/null | sort || echo "(none)"
+        echo "::endgroup::"
+        echo "Runnable Cypress specs found: $SPEC_COUNT"
+
+    - name: Run Cypress tests
+      if: steps.count_specs.outputs.SPEC_COUNT != '0'
+      run: |
+        mkdir -p Cypress/cypress/reports
         npx cypress run --config-file Cypress/cypress.config.ts
 
-    - uses: actions/upload-artifact@v4
-      if: ${{ !cancelled() }}
+    - name: "DEBUG: Cypress results"
+      if: always() && steps.count_specs.outputs.SPEC_COUNT != '0'
+      run: |
+        echo "::group::Cypress reports directory"
+        ls -la Cypress/cypress/reports/ 2>/dev/null || echo "(reports dir missing)"
+        echo "::endgroup::"
+        echo "::group::Mochawesome JSON summary"
+        MOCH_FILE=""
+        if [[ -f "Cypress/cypress/reports/mochawesome.json" ]]; then
+          MOCH_FILE="Cypress/cypress/reports/mochawesome.json"
+        elif [[ -f "Cypress/cypress/reports/mochawesome/mochawesome.json" ]]; then
+          MOCH_FILE="Cypress/cypress/reports/mochawesome/mochawesome.json"
+        fi
+        if [[ -n "$MOCH_FILE" ]]; then
+          echo "File: $MOCH_FILE ($(wc -c < "$MOCH_FILE") bytes)"
+          cat "$MOCH_FILE" | jq '{passes: .stats.passes, failures: .stats.failures, pending: .stats.pending, duration: .stats.duration}' 2>/dev/null || \
+            echo "Partial JSON:" && head -c 2000 "$MOCH_FILE"
+        else
+          echo "::warning::No mochawesome.json found — check reporter config"
+        fi
+        echo "::endgroup::"
+
+    - name: Warn — no spec files found
+      if: steps.count_specs.outputs.SPEC_COUNT == '0'
+      run: |
+        echo "::warning::No runnable Cypress specs found. Copilot must generate tests first."
+        echo "The CI run will be marked neutral (not a failure) — Jira will NOT be transitioned to Done."
+        # Exit with 0 so the workflow is marked success (neutral) rather than failure.
+        # post-results-to-jira.yml will see 0 passing tests and skip the Done transition.
+        exit 0
+
+    - name: Upload Cypress videos
+      uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() && steps.count_specs.outputs.SPEC_COUNT != '0' }}
       with:
-        name: cypress-playwright-report
+        name: cypress-videos
         path: Cypress/cypress/videos/
         retention-days: 30
 
-    - uses: actions/upload-artifact@v4
-      if: ${{ !cancelled() }}
+    - name: Upload Cypress screenshots
+      uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() && steps.count_specs.outputs.SPEC_COUNT != '0' }}
       with:
+        name: cypress-screenshots
+        path: Cypress/cypress/screenshots/
+        retention-days: 30
+
+    - name: Upload Cypress results JSON
+      uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() && steps.count_specs.outputs.SPEC_COUNT != '0' }}
+      with:
+        # Name ends with -test-results-json so post-results-to-jira.yml picks it up
         name: cypress-test-results-json
         path: Cypress/cypress/reports/
         retention-days: 30
