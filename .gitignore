@@ -31,3 +31,6 @@ node_modules/
 # Secrets — never commit credentials
 .vscode/mcp.json
 .env
+
+# Playwright MCP browser session artifacts (traces, screenshots, console logs)
+.playwright-mcp/
