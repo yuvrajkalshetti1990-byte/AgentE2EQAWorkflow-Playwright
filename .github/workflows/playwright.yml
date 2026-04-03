@@ -2,8 +2,13 @@ name: Playwright Tests
 on:
   push:
     branches: [ main, master, dev, auto/** ]
+    paths:
+      - 'qa-framework/frameworks/playwright/**'
+      - '.github/workflows/playwright.yml'
   pull_request:
     branches: [ main, master, dev ]
+    paths:
+      - 'qa-framework/frameworks/playwright/**'
   workflow_dispatch:
     inputs:
       ref:
@@ -26,50 +31,57 @@ jobs:
       run: npm ci
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
+
+    - name: "DEBUG: Environment info"
+      run: |
+        echo "::group::Environment"
+        echo "Node: $(node -v)"
+        echo "npm:  $(npm -v)"
+        npx playwright --version
+        echo "OS:   ${{ runner.os }}"
+        echo "Ref:  ${{ inputs.ref || github.ref }}"
+        echo "SHA:  ${{ github.sha }}"
+        echo "Run:  https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        echo "::endgroup::"
+
+    - name: "DEBUG: List test specs"
+      run: |
+        echo "::group::Playwright specs found"
+        find qa-framework/frameworks/playwright/tests -name "*.spec.ts" ! -name "*.notimplemented.spec.ts" 2>/dev/null | sort || echo "(none)"
+        echo "---"
+        echo "Ignored stubs:"
+        find qa-framework/frameworks/playwright/tests -name "*.notimplemented.spec.ts" 2>/dev/null | sort || echo "(none)"
+        echo "::endgroup::"
+
     - name: Run SauceDemo Playwright tests
-      run: npx playwright test --config=Playwright/saucedemo/saucedemo.playwright.config.ts
+      run: npx playwright test --config=qa-framework/frameworks/playwright/playwright.config.ts
+
+    - name: "DEBUG: Test results summary"
+      if: always()
+      run: |
+        echo "::group::Playwright test results"
+        RESULTS_FILE="qa-framework/frameworks/playwright/test-results/results.json"
+        if [[ -f "$RESULTS_FILE" ]]; then
+          echo "results.json found ($(wc -c < "$RESULTS_FILE") bytes)"
+          cat "$RESULTS_FILE" | jq '{passed: .stats.expected, failed: .stats.unexpected, skipped: .stats.skipped, duration: .stats.duration}' 2>/dev/null || \
+            echo "Partial JSON:" && head -c 2000 "$RESULTS_FILE"
+        else
+          echo "::warning::results.json NOT found at $RESULTS_FILE"
+          echo "test-results dir contents:"
+          ls -la qa-framework/frameworks/playwright/test-results/ 2>/dev/null || echo "(directory missing)"
+        fi
+        echo "::endgroup::"
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:
         name: saucedemo-playwright-report
-        path: Playwright/saucedemo/playwright-report/
+        path: qa-framework/frameworks/playwright/playwright-report/
         retention-days: 30
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:
         name: saucedemo-test-results-json
-        path: Playwright/saucedemo/test-results/results.json
+        path: qa-framework/frameworks/playwright/test-results/results.json
         retention-days: 30
 
-  test-orangehrm:
-    name: OrangeHRM E2E Tests
-    timeout-minutes: 60
-    runs-on: ubuntu-latest
-    env:
-      ORANGEHRM_USERNAME: ${{ secrets.ORANGEHRM_USERNAME }}
-      ORANGEHRM_PASSWORD: ${{ secrets.ORANGEHRM_PASSWORD }}
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        ref: ${{ inputs.ref || github.ref }}
-    - uses: actions/setup-node@v4
-      with:
-        node-version: lts/*
-    - name: Install dependencies
-      run: npm ci
-    - name: Install Playwright Browsers
-      run: npx playwright install chromium --with-deps
-    - name: Run OrangeHRM Playwright tests
-      run: npx playwright test --config=Playwright/OrangeHRM/orangehrm.playwright.config.ts
-    - uses: actions/upload-artifact@v4
-      if: ${{ !cancelled() }}
-      with:
-        name: orangehrm-playwright-report
-        path: Playwright/OrangeHRM/playwright-report/
-        retention-days: 30
-    - uses: actions/upload-artifact@v4
-      if: ${{ !cancelled() }}
-      with:
-        name: orangehrm-test-results-json
-        path: Playwright/OrangeHRM/test-results/results.json
-        retention-days: 30
+

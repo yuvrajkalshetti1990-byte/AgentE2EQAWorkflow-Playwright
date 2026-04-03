@@ -1,5 +1,5 @@
 ---
-applyTo: "Playwright/**"
+applyTo: "qa-framework/frameworks/playwright/**"
 ---
 
 # Playwright Folder — Agent and MCP Routing
@@ -28,9 +28,9 @@ The `playwright-test` MCP server is embedded in each agent's front matter — it
 
 ## New Project Setup Inside This Folder
 
-When adding a third app (e.g. `Playwright/mynewapp/`):
+When adding a new app to Playwright:
 
-1. Create `Playwright/mynewapp/mynewapp.playwright.config.ts` with:
+1. Create `qa-framework/frameworks/playwright/playwright.config.ts` with:
    - `testDir: './tests'`
    - `baseURL` if the app requires one
    - A `setup` project + `storageState` if the app has a login wall
@@ -46,20 +46,20 @@ When adding a third app (e.g. `Playwright/mynewapp/`):
          with: { node-version: lts/* }
        - run: npm ci
        - run: npx playwright install --with-deps
-       - run: npx playwright test --config=Playwright/mynewapp/mynewapp.playwright.config.ts
+       - run: npx playwright test --config=qa-framework/frameworks/playwright/playwright.config.ts
        - uses: actions/upload-artifact@v4
          if: ${{ !cancelled() }}
          with:
            name: mynewapp-playwright-report
-           path: Playwright/mynewapp/playwright-report/
+           path: qa-framework/frameworks/playwright/playwright-report/
            retention-days: 30
    ```
 
 3. Add gitignore rules in `.gitignore`:
    ```
-   /Playwright/mynewapp/playwright-report/
-   /Playwright/mynewapp/test-results/
-   /Playwright/mynewapp/.auth/
+   /qa-framework/frameworks/playwright/playwright-report/
+   /qa-framework/frameworks/playwright/test-results/
+   /qa-framework/frameworks/playwright/.auth/
    ```
 
 4. Use `@playwright-test-planner` to generate the test plan, then `@playwright-test-generator` per scenario.
@@ -75,7 +75,7 @@ Example: `mynewapp-tc-login-01-valid-credentials.spec.ts`
 ## Run Commands
 
 ```bash
-npx playwright test --config=Playwright/{appname}/{appname}.playwright.config.ts
+npx playwright test --config=qa-framework/frameworks/playwright/playwright.config.ts
 ```
 
 ## Selector Best Practices — OrangeHRM

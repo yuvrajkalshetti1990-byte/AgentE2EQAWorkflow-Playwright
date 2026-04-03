@@ -15,6 +15,7 @@ always delegate to the correct agent.
 | Generate a new Playwright `.spec.ts` test file | Playwright | `@playwright-test-generator` | `@playwright-test-generator <test plan item>` |
 | Fix a failing or broken Playwright test | Playwright | `@playwright-test-healer` | `@playwright-test-healer <error or test file>` |
 | Generate a new Cypress `.cy.ts` test file | Cypress | `@cypress-test-generator` | `@cypress-test-generator <test plan item>` |
+| Fix a failing or broken Cypress test | Cypress | `@cypress-test-healer` | `@cypress-test-healer <error or test file>` |
 
 If a user asks to "write a test", "create a test", "fix a test", "generate automation", or
 "run tests" — respond by telling them which agent to use and how to invoke it. Do not attempt
@@ -39,12 +40,10 @@ for test generation or healing; the agent handles that.
 
 ## Project Structure
 
-- `Playwright/saucedemo/` — SauceDemo Playwright tests. Config: `Playwright/saucedemo/saucedemo.playwright.config.ts`
-- `Playwright/OrangeHRM/` — OrangeHRM Playwright tests. Config: `Playwright/OrangeHRM/orangehrm.playwright.config.ts`
-- `Playwright/OrangeHRM/tests/seed.spec.ts` — Auth setup (runs first, saves session to `.auth/admin.json`)
-- `Playwright/OrangeHRM/tests/orangehrm-e2e/{story-slug}/` — One folder per Jira story
-- `Cypress/` — Cypress tests. Config: `Cypress/cypress.config.ts`
-- `Cypress/cypress/e2e/{story-slug}/` — One folder per Jira story
+- `qa-framework/frameworks/playwright/` — SauceDemo Playwright tests. Config: `qa-framework/frameworks/playwright/playwright.config.ts`
+- `qa-framework/frameworks/playwright/tests/` — One subfolder per Jira story
+- `qa-framework/frameworks/cypress/` — Cypress tests. Config: `qa-framework/frameworks/cypress/cypress.config.ts`
+- `qa-framework/frameworks/cypress/tests/{story-slug}/` — One folder per Jira story
 - `.github/agents/` — Custom agent definitions
 - `.vscode/mcp.json` — MCP server config (gitignored)
 
@@ -66,16 +65,13 @@ Example: `saucedemo-cy-hp-01-single-item-checkout.cy.ts`
 
 ```bash
 # SauceDemo Playwright
-npx playwright test --config=Playwright/saucedemo/saucedemo.playwright.config.ts
-
-# OrangeHRM Playwright
-npx playwright test --config=Playwright/OrangeHRM/orangehrm.playwright.config.ts
+npx playwright test --config=qa-framework/frameworks/playwright/playwright.config.ts
 
 # Cypress (interactive)
-npx cypress open --config-file Cypress/cypress.config.ts
+npx cypress open --config-file qa-framework/frameworks/cypress/cypress.config.ts
 
 # Cypress (headless)
-npx cypress run --config-file Cypress/cypress.config.ts
+npx cypress run --config-file qa-framework/frameworks/cypress/cypress.config.ts
 ```
 
 ## Branch Strategy

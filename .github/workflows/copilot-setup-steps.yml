@@ -29,6 +29,9 @@ jobs:
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
 
+    - name: Install Cypress binary
+      run: npx cypress install
+
     # Customize this step as needed
     - name: Build application
       run: echo "No build step required for this project"
