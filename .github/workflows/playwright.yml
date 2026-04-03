@@ -4,6 +4,12 @@ on:
     branches: [ main, master, dev, auto/** ]
   pull_request:
     branches: [ main, master, dev ]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch or SHA to test against'
+        required: false
+        default: 'dev'
 jobs:
   test-saucedemo:
     name: SauceDemo E2E Tests
@@ -11,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref || github.ref }}
     - uses: actions/setup-node@v4
       with:
         node-version: lts/*
@@ -42,6 +50,8 @@ jobs:
       ORANGEHRM_PASSWORD: ${{ secrets.ORANGEHRM_PASSWORD }}
     steps:
     - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref || github.ref }}
     - uses: actions/setup-node@v4
       with:
         node-version: lts/*
