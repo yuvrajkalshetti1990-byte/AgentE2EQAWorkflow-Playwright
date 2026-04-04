@@ -412,6 +412,20 @@ check('C40', 'Jira Done transition failure fails loudly (V4 fix)', () => {
   return 'exit 1 on Jira transition non-204/400/409; 400/409 handled gracefully';
 });
 
+check('C41', 'lint-resilience.js exists and wired in cypress.yml before test execution', () => {
+  const src = requireFile('scripts/lint-resilience.js');
+  requirePattern(src, /process\.exit\s*\(\s*1\s*\)/, 'lint-resilience.js');
+  const wf = requireFile('.github/workflows/cypress.yml');
+  requirePattern(wf, /lint-resilience\.js/, 'cypress.yml');
+  // Must appear before npx cypress run
+  const lintIdx = wf.indexOf('lint-resilience.js');
+  const runIdx  = wf.indexOf('npx cypress run');
+  if (lintIdx === -1) throw new Error('lint-resilience.js not referenced in cypress.yml');
+  if (runIdx  === -1) throw new Error('npx cypress run not found in cypress.yml');
+  if (lintIdx > runIdx) throw new Error('lint-resilience.js appears AFTER npx cypress run in cypress.yml');
+  return 'lint-resilience.js exists + wired in cypress.yml before npx cypress run';
+});
+
 // ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------

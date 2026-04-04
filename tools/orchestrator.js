@@ -811,7 +811,8 @@ async function updateJira(issueKey, passed, reportPath, testFiles, testStats) {
     );
     info('JIRA', `Transitioned to ${transTarget} (id=${transitionId}, failed=${failedCount})`);
   } catch (e) {
-    warn('JIRA', `Transition failed: ${e.message}`);
+    error('JIRA', `Transition to ${transTarget} failed: ${e.message}`);
+    throw new Error(`Jira transition to ${transTarget} failed: ${e.message}`);
   }
 }
 
