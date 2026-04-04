@@ -186,7 +186,7 @@ After every CI run, a Markdown report is generated and uploaded as a CI artifact
 qa-framework/reports/{ISSUE-KEY}-test-report.md
 ```
 
-Sections: Executive Summary · Test Execution Results · AC Coverage · Failure Analysis · Healing Activities · Coverage Summary · Gaps & Recommendations
+Sections: Executive Summary · Test Execution Results · Acceptance Criteria Coverage · Failure Analysis · Healing Activities · Test Coverage Summary · Gaps & Recommendations
 
 The report is linked in the Jira comment posted by `post-results-to-jira.yml`.
 
@@ -281,14 +281,19 @@ All run **before** `npx playwright test` / `npx cypress run` in CI — failure e
 | Rule | Behaviour |
 |------|-----------|
 | **Dual framework labels** | `cypress` + `playwright` both present → immediate `FRAMEWORK_AMBIGUOUS` error |
-| **Quality gate** | `validate-test-quality.js` runs **blocking** before any test execution — no `\|\| true` bypass |
+| **Quality gate** | `validate-test-quality.js` runs **blocking** (no try/catch) before any test execution — failure hard-exits the pipeline |
+| **Healer scope** | Healer only patches files explicitly named in the failure output — passing tests are never touched |
 | **Healer max retries** | `HEALER_MAX_RETRIES` (default: 2) — after exhausting retries, file is moved to `notimplemented/` |
 | **Healer context** | Healer receives real stdout+stderr from the failed test run — not an empty string |
-| **Report validation** | Report must exist, be non-empty, and contain `Executive Summary`, `Test Results`, `Coverage` |
+| **PR gate** | PR is created **only** when `testResult.passed === true` AND `failedCount === 0` — never on test failure |
+| **Report validation** | Report must exist, be non-empty, and contain all 7 sections: Executive Summary, Test Execution Results, Acceptance Criteria, Failure Analysis, Healing Activities, Coverage Summary, Gaps & Recommendations |
+| **Report self-validation** | `generate-report.js` validates its own output before exit — exits 1 if any section is missing |
 | **Jira Done gate** | Transition to Done **only** when `passed=true` AND `failedCount === 0` |
 | **Jira Done artifact gate** | `post-results-to-jira.yml` additionally requires `has_counts == 'true'` — no Done if test artifact is missing |
 | **Branch safety** | Existing branch is reused instead of re-created — verified before committing |
-| **Dual pipeline safety** | `qa-automation.yml` is an independent standalone path — do NOT run alongside the Jira-triggered pipeline for the same story |
+| **Dual pipeline guard** | `qa-automation.yml` orchestrator checks if `auto/test-{key}` branch already exists — if yes, exits 0 (yields to primary Jira pipeline) |
+| **Concurrency guard** | `qa-automation.yml` has a `concurrency:` group scoped to issue number — prevents parallel runs for same issue |
+| **SCRUM-16 exemption** | Learning/exploration tests under `SCRUM-16-*` are exempt from AC traceability rules |
 
 ### Pipeline audit
 
@@ -298,10 +303,14 @@ Run at any time to verify all components are wired:
 node scripts/pipeline-audit.js
 ```
 
-Currently checks **32 conditions (C01–C32)**. Exits 1 if any fail.
+Currently checks **36 conditions (C01–C36)**. Exits 1 if any fail.
 
-> C31 verifies `scripts/validate-playwright-data.js` exists and has blocking exit(1).
-> C32 verifies it runs before `npx playwright test` in `playwright.yml`.
+> C31 verifies `scripts/validate-playwright-data.js` exists and has blocking exit(1).  
+> C32 verifies it runs before `npx playwright test` in `playwright.yml`.  
+> C33 verifies `jira-ready-for-qa.yml` transitions to In QA (id=41).  
+> C34 verifies REWRITE verdict triggers exit 1.  
+> C35 verifies `post-results-to-jira.yml` requires `has_counts==true` AND `failed==0` before Done.  
+> C36 verifies both the Done transition AND the PR creation step are guarded by those conditions.
 
 ---
 

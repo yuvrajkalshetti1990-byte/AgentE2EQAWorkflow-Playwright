@@ -49,6 +49,19 @@ env:
   ATLASSIAN_EMAIL:     yuvrajkalshetti1990@gmail.com
   NODE_VERSION:        lts/*
 
+# ════════════════════════════════════════════════════════════════════════════
+# CONCURRENCY GUARD
+# Prevents two qa-automation.yml runs from executing simultaneously for the
+# same issue, and prevents overlap with the Jira-triggered pipeline path.
+# cancel-in-progress: true ensures only the latest trigger wins, avoiding
+# stale runs that could produce duplicate Jira comments or conflicting PRs.
+# The orchestrator's dual-pipeline guard (branch existence check) provides the
+# second enforcement layer at runtime.
+# ════════════════════════════════════════════════════════════════════════════
+concurrency:
+  group: qa-${{ github.event.issue.number || inputs.issue_key }}
+  cancel-in-progress: true
+
 jobs:
   # ──────────────────────────────────────────────────────────────────────────
   # GATE: only run when the issue is labeled "run-automation" (or dispatched)

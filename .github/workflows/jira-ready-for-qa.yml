@@ -626,8 +626,9 @@ jobs:
           BRANCH="${{ steps.branch.outputs.BRANCH }}"
           FRAMEWORK="${{ steps.jira.outputs.FRAMEWORK }}"
 
-          # Ensure we are on the feature branch (branch step already checked it out)
-          git checkout "$BRANCH" 2>/dev/null || true
+          # Ensure we are on the feature branch (branch step already checked it out).
+          # No || true — a failed checkout must surface immediately to prevent committing state to the wrong branch.
+          git checkout "$BRANCH"
 
           # Write/update state file using the plain-JS CLI (no npm install needed)
           node scripts/state.js init "$ISSUE_KEY" "$FRAMEWORK" "$BRANCH"

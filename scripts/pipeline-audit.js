@@ -258,9 +258,13 @@ check('C25', 'Report validation enforced (exists + non-empty + required sections
   requirePattern(orch, /validateReport/, 'orchestrator.js');
   requirePattern(orch, /REQUIRED_REPORT_SECTIONS/, 'orchestrator.js');
   requirePattern(orch, /Executive Summary/, 'orchestrator.js');
-  requirePattern(orch, /Test Results/, 'orchestrator.js');
-  requirePattern(orch, /Coverage/, 'orchestrator.js');
-  return 'validateReport() checks file existence, non-empty, and required sections';
+  requirePattern(orch, /Test Execution Results/, 'orchestrator.js');
+  requirePattern(orch, /Acceptance Criteria/, 'orchestrator.js');
+  requirePattern(orch, /Failure Analysis/, 'orchestrator.js');
+  requirePattern(orch, /Healing Activities/, 'orchestrator.js');
+  requirePattern(orch, /Coverage Summary/, 'orchestrator.js');
+  requirePattern(orch, /Gaps & Recommendations/, 'orchestrator.js');
+  return 'validateReport() checks file existence, non-empty, and all 7 required sections';
 });
 
 check('C26', 'Jira Done transition gated on failedCount === 0', () => {
@@ -313,6 +317,44 @@ check('C32', 'validate-playwright-data.js runs before test execution in playwrig
   if (runIdx  === -1) throw new Error('npx playwright test not found in playwright.yml');
   if (dataIdx > runIdx) throw new Error('validate-playwright-data.js appears AFTER test execution in playwright.yml');
   return 'validate-playwright-data.js precedes npx playwright test';
+});
+
+// ── Jira-triggered pipeline checks (primary production path) ──────────────
+
+check('C33', 'jira-ready-for-qa.yml exists and transitions to In QA', () => {
+  const src = requireFile('.github/workflows/jira-ready-for-qa.yml');
+  requirePattern(src, /jira-ready-for-qa/, 'jira-ready-for-qa.yml — triggers check');
+  requirePattern(src, /{"transition".*"id".*"41"|id.*41/, 'jira-ready-for-qa.yml — In QA transition');
+  return 'jira-ready-for-qa.yml exists + transitions to In QA (id=41)';
+});
+
+check('C34', 'jira-ready-for-qa.yml blocks pipeline when REWRITE verdict (exit 1)', () => {
+  const src = requireFile('.github/workflows/jira-ready-for-qa.yml');
+  requirePattern(src, /REWRITE/, 'jira-ready-for-qa.yml — REWRITE verdict check');
+  requirePattern(src, /exit 1/, 'jira-ready-for-qa.yml — exit 1 on REWRITE');
+  return 'REWRITE verdict triggers exit 1 (pipeline blocked)';
+});
+
+check('C35', 'post-results-to-jira.yml requires has_counts==true AND failed==0 before Done', () => {
+  const src = requireFile('.github/workflows/post-results-to-jira.yml');
+  requirePattern(src, /has_counts.*==.*'true'|has_counts.*==.*true/, 'post-results-to-jira.yml — has_counts guard');
+  requirePattern(src, /failed.*==.*'0'|failed.*==.*0/, 'post-results-to-jira.yml — failed==0 guard');
+  requirePattern(src, /JIRA_DONE_TRANSITION_ID/, 'post-results-to-jira.yml — Done transition ID');
+  return 'has_counts==true AND failed==0 both required before Done transition';
+});
+
+check('C36', 'post-results-to-jira.yml PR creation also gated on has_counts + failed==0', () => {
+  const src = requireFile('.github/workflows/post-results-to-jira.yml');
+  // Count how many times both guards appear — must appear in at least the Done block AND the PR block
+  const hasCountsMatches = (src.match(/has_counts.*==.*'true'/g) || []).length;
+  const failedMatches    = (src.match(/failed.*==.*'0'/g) || []).length;
+  if (hasCountsMatches < 2) throw new Error(
+    `has_counts guard appears only ${hasCountsMatches} time(s) — must guard BOTH Done transition and PR creation`
+  );
+  if (failedMatches < 2) throw new Error(
+    `failed==0 guard appears only ${failedMatches} time(s) — must guard BOTH Done transition and PR creation`
+  );
+  return `has_counts guard appears ${hasCountsMatches}x and failed==0 guard appears ${failedMatches}x — Done and PR both gated`;
 });
 
 // ---------------------------------------------------------------------------

@@ -373,7 +373,7 @@ function buildAcCoverage(run, storyKey) {
     }
   }
 
-  const lines = ['## 3. Acceptance Criteria Coverage', ''];
+  const lines = ['## 3. AC Coverage', ''];
 
   if (!acFound) {
     lines.push(
@@ -709,6 +709,32 @@ function main() {
 
   console.log(`[generate-report] Report written to: ${outFile}`);
   console.log(`[generate-report] Summary: ${run.total} total | ${run.passed} passed | ${run.failed} failed | ${run.skipped} skipped | ${fmtDuration(run.durationMs)}`);
+
+  // ── Self-validation: enforce all 7 required sections ────────────────────
+  // Self-validation: enforce all 7 required sections are present in the report
+  function validateReportContent(content) {
+    const sections = [
+      'Executive Summary',
+      'Test Execution Results',
+      'AC Coverage',           // matches '## 3. AC Coverage'
+      'Failure Analysis',
+      'Healing Activities',
+      'Coverage Summary',      // matches '## 6. Test Coverage Summary'
+      'Gaps & Recommendations',
+    ];
+    return sections.every(s => content.includes(s));
+  }
+
+  if (!validateReportContent(report)) {
+    const missing = [
+      'Executive Summary', 'Test Execution Results', 'AC Coverage',
+      'Failure Analysis', 'Healing Activities', 'Coverage Summary', 'Gaps & Recommendations',
+    ].filter(s => !report.includes(s));
+    console.error('[generate-report] ERROR: Report validation failed — missing required section(s):');
+    missing.forEach(s => console.error(`  - ${s}`));
+    process.exit(1);
+  }
+  console.log('[generate-report] Report validation: OK — all 7 required sections present.');
 }
 
 main();

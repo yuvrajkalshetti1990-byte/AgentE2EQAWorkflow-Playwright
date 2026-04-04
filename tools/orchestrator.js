@@ -183,6 +183,29 @@ async function withRetry(label, fn) {
 }
 
 // ---------------------------------------------------------------------------
+// Branch existence check — used by dual-pipeline guard and PR creation
+// Returns true if branch exists, false on 404. Exits with code 1 on any
+// other error (auth / network failure) to prevent silent duplicate runs.
+// ---------------------------------------------------------------------------
+
+async function branchExists(branchName) {
+  try {
+    await httpsRequest('GET',
+      `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/git/ref/heads/${branchName}`,
+      Object.assign({ 'X-GitHub-Api-Version': '2022-11-28' }, githubAuth())
+    );
+    return true;
+  } catch (e) {
+    if (!e.message.includes('404')) {
+      // Unexpected error (auth / network) — fail loudly rather than risk duplication
+      error('SKIP', `Could not verify branch existence for ${branchName}: ${e.message}`);
+      process.exit(1);
+    }
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Step 1 — Fetch Jira issue
 // ---------------------------------------------------------------------------
 
@@ -532,6 +555,23 @@ function executeTests(framework, issueKey) {
 
 const NOT_IMPL_DIR = path.resolve(process.cwd(), 'qa-framework', 'notimplemented');
 
+// ---------------------------------------------------------------------------
+// Healer helper — extract only the test files mentioned in failure output
+// ---------------------------------------------------------------------------
+
+function extractFailingFiles(output, allFiles) {
+  if (!output || output.trim() === '') return [];
+  // Match any .spec.ts or .cy.ts path fragments that appear in test runner output
+  const matches = output.match(/[\w./@-]+\.(?:spec|cy)\.ts/g);
+  const mentioned = new Set(matches || []);
+  // Cross-reference against the known test files so we never return phantom paths
+  const failing = allFiles.filter(f => {
+    const base = path.basename(f);
+    return [...mentioned].some(m => f.includes(m) || base === path.basename(m));
+  });
+  return failing;
+}
+
 function moveToNotImplemented(filePath, issueKey, reason) {
   fs.mkdirSync(NOT_IMPL_DIR, { recursive: true });
   const basename = path.basename(filePath);
@@ -642,8 +682,12 @@ Return ONLY the fixed TypeScript source code.`;
 
 const REQUIRED_REPORT_SECTIONS = [
   'Executive Summary',
-  'Test Results',
-  'Coverage',
+  'Test Execution Results',
+  'AC Coverage',           // matches '## 3. AC Coverage' (Acceptance Criteria coverage section)
+  'Failure Analysis',
+  'Healing Activities',
+  'Coverage Summary',      // matches '## 6. Test Coverage Summary'
+  'Gaps & Recommendations',
 ];
 
 function validateReport(reportPath) {
@@ -681,14 +725,12 @@ function generateReport(framework, issueKey, resultsJson) {
     );
   }
 
-  try {
-    execSync(
-      `node scripts/generate-report.js --framework ${framework} --results-json "${resultsJson}" --story-key "${issueKey}"`,
-      { stdio: 'inherit' }
-    );
-  } catch (e) {
-    warn('REPORT', `generate-report.js exited non-zero: ${e.message}`);
-  }
+  // Layer 1 — Execution failure: let execSync throw naturally so the pipeline stops immediately.
+  // Layer 2 — Content validation: validateReport() below enforces all 7 required sections.
+  execSync(
+    `node scripts/generate-report.js --framework ${framework} --results-json "${resultsJson}" --story-key "${issueKey}"`,
+    { stdio: 'inherit' }
+  );
 
   // Resolve actual report file (handle casing variants)
   const candidates = [
@@ -742,8 +784,15 @@ async function updateJira(issueKey, passed, reportPath, testFiles, testStats) {
   }
 
   // Transition — ONLY move to Done when ALL tests passed (failed == 0)
-  // passed=true alone is not sufficient; we check failedCount explicitly
-  const failedCount  = testStats?.failed ?? (passed ? 0 : 1);
+  // Refuse to transition if stats are missing — avoids phantom success where
+  // the runner exited 0 but produced no parseable results JSON.
+  if (!testStats) {
+    throw new Error(
+      `Missing test stats for ${issueKey} — refusing Jira transition to prevent phantom Done status. ` +
+      'Ensure the test runner produced a parseable results JSON.'
+    );
+  }
+  const failedCount  = testStats.failed;
   const canTransDone = passed && failedCount === 0;
   const transitionId = canTransDone ? cfg.jiraDoneId : cfg.jiraInQaId;
   const transTarget  = canTransDone ? 'Done' : 'In QA';
@@ -802,19 +851,12 @@ async function createPR(issueKey, framework, summary, testFiles) {
   if (!baseSha) throw new Error(`Could not resolve SHA for branch ${cfg.baseBranch}`);
 
   // Check if branch already exists — reuse it instead of creating
-  let branchExists = false;
-  try {
-    await httpsRequest('GET',
-      `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/git/ref/heads/${BRANCH_NAME}`,
-      Object.assign({ 'X-GitHub-Api-Version': '2022-11-28' }, githubAuth())
-    );
-    branchExists = true;
+  const branchAlreadyExists = await branchExists(BRANCH_NAME);
+  if (branchAlreadyExists) {
     info('PR', `Branch already exists — reusing: ${BRANCH_NAME}`);
-  } catch (e) {
-    if (!e.message.includes('404')) throw e;
   }
 
-  if (!branchExists) {
+  if (!branchAlreadyExists) {
     await httpsRequest('POST',
       `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/git/refs`,
       Object.assign({ 'X-GitHub-Api-Version': '2022-11-28' }, githubAuth()),
@@ -975,11 +1017,26 @@ async function main() {
   info('ORCHESTRATOR', `Starting pipeline for ${cfg.issueKey}`);
   info('ORCHESTRATOR', `Branch: ${BRANCH_NAME} | Base: ${cfg.baseBranch}`);
 
+  // ── Dual-pipeline guard ────────────────────────────────────────────────
+  // If the primary Jira-triggered pipeline (jira-ready-for-qa.yml) has already
+  // created the auto/test-* branch, the QA orchestrator path (qa-automation.yml)
+  // must NOT run — it would produce duplicate Jira comments and conflicting transitions.
+  if (await branchExists(BRANCH_NAME)) {
+    info('SKIP', `Primary Jira pipeline already active — branch ${BRANCH_NAME} exists. Skipping orchestrator.`);
+    process.exit(0);
+  }
+  info('ORCHESTRATOR', `Branch ${BRANCH_NAME} not found — proceeding with standalone pipeline`);
+
   // Load / init state
   let state = stateLoad();
   if (state) {
     info('STATE', `Resuming from existing state (created ${state.createdAt})`);
   }
+
+  // ── Quality gate pre-flight (BLOCKING — outside try/catch, throws and stops execution) ──
+  // Must run before any LLM calls or test execution. No try/catch wrapper — any
+  // violation throws immediately, halting the pipeline with a non-zero exit code.
+  runQualityGate();
 
   let jiraIssue, framework, testPlan, testFiles, testResult, reportFile, prUrl;
 
@@ -988,13 +1045,6 @@ async function main() {
     jiraIssue  = await fetchJiraIssue();
     framework  = state?.framework || detectFramework(jiraIssue.labels);
     state      = stateSave({ framework, branch: BRANCH_NAME, issueTitle: jiraIssue.summary });
-
-    // ── 2. Quality gate pre-flight ─────────────────────────────────────────
-    try {
-      runQualityGate();
-    } catch (e) {
-      warn('GATE', `Quality gate failed (non-blocking on empty repo): ${e.message}`);
-    }
 
     // ── 3. Planner ─────────────────────────────────────────────────────────
     if (state.planGenerated) {
@@ -1031,7 +1081,14 @@ async function main() {
       healerAttempt++;
       info('HEALER', `Tests failed — invoking healer (attempt ${healerAttempt}/${cfg.healerMaxRetries})`);
 
-      await runHealer(framework, cfg.issueKey, testFiles, testResult.output || '', healerAttempt);
+      // Only heal files explicitly mentioned in failure output; fall back to all if none detected
+      const failingFiles = extractFailingFiles(testResult.output || '', testFiles);
+      if (failingFiles.length === 0) {
+        warn('HEALER', 'No failing test files detected in output — skipping healer to avoid blindly patching passing tests');
+        break;
+      }
+      info('HEALER', `Targeting ${failingFiles.length} failing file(s): ${failingFiles.map(f => path.basename(f)).join(', ')}`);
+      await runHealer(framework, cfg.issueKey, failingFiles, testResult.output || '', healerAttempt);
       state = stateSave({ healerAttempts: healerAttempt, [`healerRanAt${healerAttempt}`]: new Date().toISOString() });
 
       // Re-run tests after healing
@@ -1066,19 +1123,24 @@ async function main() {
     await updateJira(cfg.issueKey, testResult.passed, reportFile, testFiles, testResult.stats);
     state = stateSave({ jiraUpdated: true, jiraStatus: testResult.passed ? 'Done' : 'In QA' });
 
-    // ── 9. PR automation ───────────────────────────────────────────────────
-    if (!state.prUrl) {
-      prUrl = await createPR(cfg.issueKey, framework, jiraIssue.summary, testFiles);
-      state = stateSave({ prUrl });
+    // ── 9. PR automation — ONLY on full success ──────────────────────────────
+    const failedCount = testResult.stats?.failed ?? (testResult.passed ? 0 : 1);
+    if (testResult.passed === true && failedCount === 0) {
+      if (!state.prUrl) {
+        prUrl = await createPR(cfg.issueKey, framework, jiraIssue.summary, testFiles);
+        state = stateSave({ prUrl });
+      } else {
+        prUrl = state.prUrl;
+        info('PR', `PR already created: ${prUrl}`);
+      }
     } else {
-      prUrl = state.prUrl;
-      info('PR', `PR already created: ${prUrl}`);
+      warn('PR', `Skipping PR creation — tests failed (passed=${testResult.passed}, failed=${failedCount})`);
     }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     info('ORCHESTRATOR', `Pipeline complete in ${elapsed}s`);
     info('ORCHESTRATOR', `Result: ${testResult.passed ? '✅ PASSED' : '❌ FAILED'}`);
-    info('ORCHESTRATOR', `PR: ${prUrl}`);
+    info('ORCHESTRATOR', `PR: ${prUrl || '(not created — tests failed)'}`);
     info('ORCHESTRATOR', `Report: ${reportFile}`);
 
     if (!testResult.passed) {
