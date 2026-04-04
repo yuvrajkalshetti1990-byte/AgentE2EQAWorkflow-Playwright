@@ -286,18 +286,18 @@ jobs:
           echo "has_counts:        ${{ steps.download.outputs.has_counts }}"
           echo "---"
           echo "Will post comment: ${{ steps.verify_jira.outputs.JIRA_EXISTS == 'true' }}"
-          echo "Will mark Done:    ${{ github.event.workflow_run.conclusion == 'success' && steps.download.outputs.failed == '0' }}"
-          echo "Will open PR:      ${{ github.event.workflow_run.conclusion == 'success' && steps.download.outputs.failed == '0' }}"
+          echo "Will mark Done:    CI=success AND failed=0 AND has_counts=true required"
+          echo "Will open PR:      CI=success AND failed=0 AND has_counts=true required"
           echo "::endgroup::"
 
       - name: Transition Jira to Done (on success)
-        # Transitions on workflow success, regardless of whether a JSON artifact was found.
-        # If CI passed the tests, we trust the conclusion and mark Done.
-        # has_counts is logged but not a gate — prevents silent Jira freeze when JSON upload fails.
+        # Requires BOTH: CI success AND a parsed test artifact confirming zero failures.
+        # has_counts must be 'true' — Jira will NOT be marked Done if results artifact is missing.
         if: >
           steps.verify_jira.outputs.JIRA_EXISTS == 'true' &&
           github.event.workflow_run.conclusion == 'success' &&
-          steps.download.outputs.failed == '0'
+          steps.download.outputs.failed == '0' &&
+          steps.download.outputs.has_counts == 'true'
         env:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
           ISSUE_KEY: ${{ steps.extract.outputs.ISSUE_KEY }}
@@ -323,10 +323,12 @@ jobs:
           fi
 
       - name: Open PR into dev (on success)
-        # Opens PR on success even without JSON counts — CI conclusion is the source of truth.
+        # Requires BOTH: CI success AND a parsed test artifact confirming zero failures.
+        # has_counts must be 'true' — PR will NOT be created if results artifact is missing.
         if: >
           github.event.workflow_run.conclusion == 'success' &&
-          steps.download.outputs.failed == '0'
+          steps.download.outputs.failed == '0' &&
+          steps.download.outputs.has_counts == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BRANCH: ${{ steps.extract.outputs.BRANCH }}

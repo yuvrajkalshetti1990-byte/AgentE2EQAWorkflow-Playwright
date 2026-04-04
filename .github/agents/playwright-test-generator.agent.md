@@ -53,6 +53,29 @@ This means the rules below are not guidelines — they are enforced at the syste
 
 ---
 
+# Test Intelligence Layer — MANDATORY
+
+Before writing any test, check whether an enhanced AC document exists for the story:
+
+```
+qa-framework/intelligence/{story-key}-enhanced-ac.json
+```
+
+**If the file exists:**
+- Use `enriched[n].suggestedTestTitle` as the primary `test()` description
+- Use `enriched[n].assertionHints` to drive your `expect()` calls — each hint includes a `snippet` field
+- Use `enriched[n].edgeCases` to generate additional `test()` blocks for edge scenarios
+- Use `enriched[n].expectedOutcomes` and `enriched[n].validationConditions` to fill preconditions and assertion prose
+- Use `enriched[n].enhancedText` instead of `originalText` when constructing the AC header comment (it contains the structured GWT rewrite)
+- For any AC where `enriched[n].automatable === false`: use `enriched[n].notImplementedPath` as the stub file path and document `enriched[n].nonAutomatableReason` in the stub header
+- **Do NOT generate a test** for ACs with `verdict === 'REWRITE'` — the pipeline should have been blocked; create a stub instead and note the rewrite requirement
+
+**If the file does not exist:** proceed with the raw AC text — the intelligence layer has not yet run for this story.
+
+**Priority rule:** enhanced AC always supersedes the raw Jira text.
+
+---
+
 # AC Traceability — MANDATORY
 
 Every test file you generate MUST:

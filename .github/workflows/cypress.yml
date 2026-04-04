@@ -111,6 +111,9 @@ jobs:
     - name: "Pre-flight: Cypress test compliance check"
       run: node scripts/validate-cypress-tests.js
 
+    - name: "Pre-flight: Test quality gate (assertions + observability + cy.log)"
+      run: node scripts/validate-test-quality.js
+
     - name: Run Cypress tests
       if: steps.count_specs.outputs.SPEC_COUNT != '0'
       run: |

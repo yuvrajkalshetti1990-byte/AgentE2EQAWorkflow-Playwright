@@ -1,6 +1,6 @@
 # E2E Agentic QA Pipeline
 
-A **zero-human-intervention** QA automation pipeline: Jira "Ready for QA" → generated tests → CI execution → Jira "Done" → PR — fully automated.
+A **zero-human-intervention** QA automation pipeline: Jira "Ready for QA" → AC enrichment → generated tests → CI execution → test report → Jira "Done" → PR — fully automated.
 
 ---
 
@@ -16,19 +16,23 @@ A **zero-human-intervention** QA automation pipeline: Jira "Ready for QA" → ge
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  jira-ready-for-qa.yml                                                     │
 │                                                                             │
-│  Step 1 │ Fetch Jira story (summary, status, labels, description)          │
-│  Step 2 │ Detect framework: "cypress" label → Cypress, else → Playwright   │
-│  Step 3 │ Review ACs via OpenAI gpt-4o-mini (score 1–5)                   │
-│  Step 4 │ Post AC review comment to Jira (Activity tab)                    │
-│  Step 5 │ Score < 3.0 → REWRITE → move Jira back to "In Progress" → STOP  │
-│  Step 6 │ Create branch auto/test-{issue-key}  (idempotent — reuses if     │
-│          │ branch already exists)                                           │
-│  Step 7 │ Create GitHub Issue with test instructions  (idempotent — reuses │
-│          │ existing issue if already created for this key)                  │
-│  Step 8 │ Assign Copilot to that GitHub Issue                              │
-│  Step 9 │ Transition Jira → "In QA"  (resilient — 400/409 = already there)│
-│  Step 10│ Post Jira comment: pipeline triggered + branch + GH issue URL    │
-│  Step 11│ Dispatch cypress.yml OR playwright.yml on the feature branch     │
+│  Step 1  │ Load pipeline state (idempotency check)                         │
+│  Step 2  │ Fetch Jira story (summary, status, labels, description)         │
+│  Step 3  │ Detect framework: "cypress" label → Cypress, else → Playwright  │
+│  Step 4  │ Review ACs via OpenAI gpt-4o-mini (score 1-5, per-dimension)    │
+│  Step 5  │ Post AC review comment to Jira (Activity tab)                   │
+│  Step 6  │ Score < 3.0 → REWRITE → move Jira back to "In Progress" → STOP │
+│  Step 7  │ Enrich ACs (Test Intelligence Layer) →                          │
+│          │   builds assertionHints, edgeCases, suggestedTitles             │
+│          │   writes qa-framework/intelligence/{key}-enhanced-ac.json       │
+│  Step 8  │ Create branch auto/test-{issue-key}  (idempotent)               │
+│  Step 9  │ Create GitHub Issue with test instructions + Intelligence Note  │
+│          │   (idempotent — reuses if already created)                      │
+│  Step 10 │ Assign Copilot to that GitHub Issue                             │
+│  Step 11 │ Persist pipeline state + intelligence file to feature branch    │
+│  Step 12 │ Transition Jira → "In QA"  (resilient: 400/409 = already there)│
+│  Step 13 │ Post Jira comment: pipeline triggered + branch + GH issue URL  │
+│  Step 14 │ Dispatch cypress.yml OR playwright.yml on the feature branch    │
 └───────────────────────────────┬─────────────────────────────────────────────┘
                                 │
                                 ▼
@@ -36,10 +40,11 @@ A **zero-human-intervention** QA automation pipeline: Jira "Ready for QA" → ge
 │  Copilot Coding Agent (GitHub Issue assigned to Copilot)                   │
 │                                                                             │
 │  • Reads the GitHub Issue instructions                                      │
-│  • Fetches the Jira story ACs                                               │
-│  • Uses @playwright-test-planner (or explores via @cypress-test-generator) │
-│  • Generates one test per AC with AC reference comments                     │
-│  • Unimplementable ACs → stubs in qa-framework/notimplemented/             │
+│  • Reads qa-framework/intelligence/{key}-enhanced-ac.json (if present)    │
+│    → uses suggestedTestTitle, assertionHints, edgeCases per AC             │
+│  • Uses @playwright-test-planner or @cypress-test-planner for test plan   │
+│  • Generates one test per AC (ACs with verdict=REWRITE → skip)            │
+│  • Non-automatable ACs → stubs in qa-framework/notimplemented/            │
 │  • Commits + pushes to auto/test-{issue-key}                               │
 └───────────────────────────────┬─────────────────────────────────────────────┘
                                 │ push triggers CI workflow automatically
@@ -48,9 +53,11 @@ A **zero-human-intervention** QA automation pipeline: Jira "Ready for QA" → ge
 │  playwright.yml  OR  cypress.yml                                           │
 │                                                                             │
 │  • npm ci + install browsers / Cypress binary                               │
+│  • TypeScript compilation check + compliance validation                    │
 │  • Count runnable specs (excludes *.notimplemented.* stubs)                │
-│  • Run tests (Playwright: results.json │ Cypress: mochawesome.json)        │
-│  • Upload JSON results artifact + HTML/video artifact                       │
+│  • Run tests (Playwright: results.json | Cypress: mochawesome.json)        │
+│  • Generate test execution report → qa-framework/reports/{key}-report.md  │
+│  • Upload: JSON results + HTML/video + report artifacts                    │
 │  • Always runs to completion — never exits before uploading artifacts       │
 └───────────────────────────────┬─────────────────────────────────────────────┘
                                 │ workflow_run: completed → post-results-to-jira.yml
@@ -60,8 +67,8 @@ A **zero-human-intervention** QA automation pipeline: Jira "Ready for QA" → ge
 │                                                                             │
 │  • Download *-test-results-json artifact                                    │
 │  • Parse results.json (Playwright) OR mochawesome.json (Cypress)           │
-│  • Post result comment to Jira (passed/failed/skipped counts)              │
-│  • If conclusion == success AND failed == 0:                               │
+│  • Post result comment to Jira (passed/failed/skipped + report link)       │
+│  • If conclusion == success AND failed == 0 AND results artifact found:    │
 │      → Transition Jira → "Done"                                            │
 │      → Open PR: auto/test-{key} → dev  (idempotent — skip if PR exists)   │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -130,8 +137,67 @@ Ensure the repository has **GitHub Copilot Enterprise** enabled so the Copilot c
 |-----|--------|
 | Jira issue has label `cypress` | Cypress tests generated |
 | No `cypress` label | Playwright tests generated (default) |
+| Jira issue has **both** `cypress` **and** `playwright` labels | ❌ **Pipeline fails with `FRAMEWORK_AMBIGUOUS`** — remove one label |
 | Manual `workflow_dispatch` → `framework: cypress` | Override |
 | Manual `workflow_dispatch` → `framework: playwright` | Override |
+
+---
+
+## Test Intelligence Layer
+
+Before creating tests, the pipeline enriches each AC with structured, machine-readable metadata:
+
+```
+jira-ready-for-qa.yml (Step 7)
+   └── scripts/enrich-ac.js
+         └── writes qa-framework/intelligence/{ISSUE-KEY}-enhanced-ac.json
+```
+
+Each enriched AC contains:
+
+| Field | Description |
+|-------|-------------|
+| `verdict` | `AUTOMATE` / `IMPROVE` / `REWRITE` (from AC scorer) |
+| `automatable` | `true` / `false` — whether to generate a test |
+| `suggestedTestTitle` | Ready-to-use test title derived from the AC |
+| `assertionHints[]` | Typed hints: `url-check`, `text-visible`, `element-visible`, etc. |
+| `edgeCases[]` | Typed edge cases: `empty-input`, `boundary-value`, `invalid-input`, etc. |
+| `expectedOutcomes[]` | Plain-text list of things to verify |
+| `enhancedText` | AC rewritten in Given/When/Then format (for IMPROVE/REWRITE) |
+
+**Generator agents read this file automatically** — `@playwright-test-generator` and `@cypress-test-generator` both check for `qa-framework/intelligence/{story-key}-enhanced-ac.json` before writing a test.
+
+To run enrichment locally:
+
+```bash
+node scripts/enrich-ac.js \
+  --story-key SCRUM-42 \
+  --acs "Given a logged-in user, when..." "When invalid email..." \
+  --framework playwright
+```
+
+---
+
+## Test Execution Reports
+
+After every CI run, a Markdown report is generated and uploaded as a CI artifact:
+
+```
+qa-framework/reports/{ISSUE-KEY}-test-report.md
+```
+
+Sections: Executive Summary · Test Execution Results · AC Coverage · Failure Analysis · Healing Activities · Coverage Summary · Gaps & Recommendations
+
+The report is linked in the Jira comment posted by `post-results-to-jira.yml`.
+
+To generate locally:
+
+```bash
+node scripts/generate-report.js \
+  --story-key SCRUM-42 \
+  --results-json qa-framework/frameworks/cypress/reports/results.json \
+  --framework cypress
+```
 
 ---
 
@@ -186,12 +252,60 @@ These stubs:
 - Are **excluded from CI** via `testIgnore` / `excludeSpecPattern`
 - Track what's not automated and why
 - Serve as work items to resolve
+- Are also created automatically by the orchestrator when the LLM healer exhausts all retry attempts
 
 See [qa-framework/notimplemented/README.md](qa-framework/notimplemented/README.md).
 
 ---
 
-## Pipeline State Management
+## Production Readiness & Quality Gates
+
+The pipeline enforces strict quality rules at every stage:
+
+### Pre-flight checks (BEFORE tests run)
+
+| Script | What it enforces | Frameworks |
+|--------|-----------------|------------|
+| `scripts/validate-test-quality.js` | Assertions present, not navigation-only, no weak-only assertions, AC traceability (`// Jira:`), **per-test `// AC-N:` comment** | Playwright + Cypress |
+| `scripts/validate-test-quality.js` | `console.log()` in every Playwright file (observability) | Playwright |
+| `scripts/validate-test-quality.js` | `cy.log()` in every Cypress file (observability) | Cypress |
+| `scripts/validate-fixtures.js` | Every `cy.fixture()` has `@requiredFixtures` comment | Cypress |
+| `scripts/validate-playwright-data.js` | All `fs.readFileSync`, `storageState`, `require(*.json)` references point to files that exist on disk | Playwright |
+| `scripts/validate-playwright-tests.js` | No hardcoded credentials, `// Jira:` header, `console.log()` | Playwright |
+| `scripts/validate-cypress-tests.js` | No hardcoded credentials, `// Jira:` header, `cy.log()` | Cypress |
+
+All run **before** `npx playwright test` / `npx cypress run` in CI — failure exits before a browser is launched.
+
+### Orchestrator safety rules
+
+| Rule | Behaviour |
+|------|-----------|
+| **Dual framework labels** | `cypress` + `playwright` both present → immediate `FRAMEWORK_AMBIGUOUS` error |
+| **Quality gate** | `validate-test-quality.js` runs **blocking** before any test execution — no `\|\| true` bypass |
+| **Healer max retries** | `HEALER_MAX_RETRIES` (default: 2) — after exhausting retries, file is moved to `notimplemented/` |
+| **Healer context** | Healer receives real stdout+stderr from the failed test run — not an empty string |
+| **Report validation** | Report must exist, be non-empty, and contain `Executive Summary`, `Test Results`, `Coverage` |
+| **Jira Done gate** | Transition to Done **only** when `passed=true` AND `failedCount === 0` |
+| **Jira Done artifact gate** | `post-results-to-jira.yml` additionally requires `has_counts == 'true'` — no Done if test artifact is missing |
+| **Branch safety** | Existing branch is reused instead of re-created — verified before committing |
+| **Dual pipeline safety** | `qa-automation.yml` is an independent standalone path — do NOT run alongside the Jira-triggered pipeline for the same story |
+
+### Pipeline audit
+
+Run at any time to verify all components are wired:
+
+```bash
+node scripts/pipeline-audit.js
+```
+
+Currently checks **32 conditions (C01–C32)**. Exits 1 if any fail.
+
+> C31 verifies `scripts/validate-playwright-data.js` exists and has blocking exit(1).
+> C32 verifies it runs before `npx playwright test` in `playwright.yml`.
+
+---
+
+
 
 State is tracked per branch as `qa-framework/pipeline-state/{issue-key}.state.json` (committed to the feature branch).
 
@@ -244,7 +358,8 @@ npx playwright test --config=qa-framework/frameworks/playwright/playwright.confi
 | Task | Agent | Command |
 |------|-------|---------|
 | Review ACs for automation feasibility | `@ac-reviewer` | `@ac-reviewer SCRUM-42` |
-| Create a test plan from a story/URL | `@playwright-test-planner` | `@playwright-test-planner <story or URL>` |
+| Create a Playwright test plan from a story/URL | `@playwright-test-planner` | `@playwright-test-planner <story or URL>` |
+| Create a Cypress test plan from a story/URL | `@cypress-test-planner` | `@cypress-test-planner <story or URL>` |
 | Generate a Playwright test | `@playwright-test-generator` | `@playwright-test-generator <plan item>` |
 | Fix a failing Playwright test | `@playwright-test-healer` | `@playwright-test-healer <file or error>` |
 | Generate a Cypress test | `@cypress-test-generator` | `@cypress-test-generator <plan item>` |
@@ -262,32 +377,35 @@ E2E-AgenticWorkflow/
 ├── .github/
 │   ├── agents/
 │   │   ├── ac-reviewer.agent.md              # AC feasibility reviewer
-│   │   ├── playwright-test-planner.agent.md  # Test plan creator
+│   │   ├── playwright-test-planner.agent.md  # Playwright test plan creator
+│   │   ├── cypress-test-planner.agent.md     # Cypress test plan creator
 │   │   ├── playwright-test-generator.agent.md
 │   │   ├── playwright-test-healer.agent.md
 │   │   ├── cypress-test-generator.agent.md
 │   │   └── cypress-test-healer.agent.md
 │   ├── instructions/
-│   │   ├── playwright.instructions.md        # Auto-applied to qa-framework/frameworks/playwright/**
-│   │   └── cypress.instructions.md           # Auto-applied to qa-framework/frameworks/cypress/**
+│   │   ├── playwright.instructions.md        # Auto-applied to playwright/**
+│   │   └── cypress.instructions.md           # Auto-applied to cypress/**
 │   ├── workflows/
-│   │   ├── jira-ready-for-qa.yml             # Entry point (Jira webhook)
-│   │   ├── playwright.yml                    # CI — Playwright tests
-│   │   ├── cypress.yml                       # CI — Cypress tests
-│   │   ├── post-results-to-jira.yml          # CI post-processor
-│   │   └── copilot-setup-steps.yml           # Copilot agent env setup
-│   ├── copilot-instructions.md               # Global agent routing rules
-│   └── WORKFLOW-GUIDE.md                     # Detailed walkthrough
+│   │   ├── jira-ready-for-qa.yml             # Entry point (Jira webhook → pipeline)
+│   │   ├── playwright.yml                    # CI — Playwright tests + report
+│   │   ├── cypress.yml                       # CI — Cypress tests + report
+│   │   ├── post-results-to-jira.yml          # CI post-processor (comment + Done + PR)
+│   │   └── copilot-setup-steps.yml           # Copilot agent env pre-install
+│   └── copilot-instructions.md               # Global agent routing rules
 │
-├── qa-framework/                             # ALL framework code lives here
+├── qa-framework/
 │   ├── common/
 │   │   ├── types/index.ts                    # All shared TypeScript types
 │   │   ├── utils/
-│   │   │   ├── logger.ts                     # Structured JSON logger
-│   │   │   └── test-result-parser.ts         # Playwright + Cypress result parser
+│   │   │   ├── logger.ts
+│   │   │   ├── test-result-parser.ts         # Playwright + Cypress result parser
+│   │   │   └── report-generator.ts           # TypeScript source for report generator
 │   │   ├── jira/jira-client.ts               # Jira REST API v3 client
 │   │   ├── github/github-client.ts           # GitHub REST API v3 client
-│   │   ├── agents-core/ac-scorer.ts          # AC scoring + stub generator
+│   │   ├── agents-core/
+│   │   │   ├── ac-scorer.ts                  # AC quality scoring (5 dimensions)
+│   │   │   └── ac-enricher.ts                # Test Intelligence Layer enrichment
 │   │   └── pipeline-state/state-manager.ts   # Idempotent state persistence
 │   ├── frameworks/
 │   │   ├── playwright/                       # SauceDemo Playwright tests
@@ -295,21 +413,50 @@ E2E-AgenticWorkflow/
 │   │   │   ├── tests/                        # {app}-tc-{area}-{nn}-{desc}.spec.ts
 │   │   │   └── specs/                        # Test plans from @playwright-test-planner
 │   │   └── cypress/                          # Cypress tests
-│   │       ├── cypress.config.ts             # Mochawesome + excludeSpecPattern
+│   │       ├── cypress.config.ts             # Mochawesome JSON reporter wired in
 │   │       ├── tests/                        # {app}-cy-{area}-{nn}-{desc}.cy.ts
 │   │       ├── fixtures/
 │   │       ├── pages/
 │   │       └── support/
+│   ├── intelligence/
+│   │   └── .gitkeep                          # {ISSUE-KEY}-enhanced-ac.json per branch (CI)
 │   ├── notimplemented/
 │   │   ├── README.md
-│   │   ├── _TEMPLATE.spec.ts                 # Playwright stub template
-│   │   └── _TEMPLATE.cy.ts                   # Cypress stub template
-│   └── state/                                # *.state.json files (per branch)
+│   │   ├── _TEMPLATE.spec.ts
+│   │   └── _TEMPLATE.cy.ts
+│   ├── reports/
+│   │   └── (report .md files — CI artifact, linked in Jira comment)
+│   └── state/
+│       └── .gitkeep                          # {issue-key}.state.json per branch (CI)
 │
-├── scripts/                                  # CI validation scripts
+├── scripts/
+│   ├── enrich-ac.js                          # CLI: AC enrichment (no build needed)
+│   ├── generate-report.js                    # CLI: test execution report generator
+│   ├── state.js                              # CLI: pipeline state read/write
+│   ├── validate-cypress-tests.js             # Cypress compliance assertions
+│   ├── validate-playwright-tests.js          # Playwright compliance assertions
+│   ├── validate-fixtures.js                  # Fixture reference validation
+│   └── lint-resilience.js                    # Raw cy.visit/cy.request lint
+│
 ├── package.json                              # Single node_modules for all frameworks
-└── README.md                                 # This file
+└── README.md
 ```
+
+---
+
+## Test File Naming Convention
+
+**Playwright:**
+```
+{app-prefix}-tc-{area}-{seq:02d}-{kebab-description}.spec.ts
+```
+Example: `saucedemo-tc-hp-01-single-item-checkout.spec.ts`
+
+**Cypress:**
+```
+{app-prefix}-cy-{area}-{seq:02d}-{kebab-description}.cy.ts
+```
+Example: `saucedemo-cy-hp-01-single-item-checkout.cy.ts`
 
 ---
 
@@ -320,231 +467,23 @@ E2E-AgenticWorkflow/
 | OpenAI unreachable | Defaults to `IMPROVE` verdict — pipeline continues |
 | OpenAI returns non-JSON | Defaults to `IMPROVE` verdict — pipeline continues |
 | AC score < 3.0 (REWRITE) | Pipeline blocked, Jira moved back to "In Progress" |
+| AC enrichment fails | Warning logged, pipeline continues without intelligence file |
 | Jira transition fails (already in state) | HTTP 400/409 logged, pipeline continues |
 | GitHub issue already exists | Existing issue reused — no duplicate created |
 | PR already exists | Existing PR reused — no duplicate created |
 | CI tests fail | Jira gets a FAILED comment, NOT transitioned to Done, NO PR opened |
 | CI passes but no JSON artifact | Jira gets PASSED comment, Done transition uses workflow conclusion |
 | No specs found in Cypress | Warning logged, workflow marked neutral, no Done transition |
-
-
-```
-Jira: Move story → "Ready for QA"
-        │
-        │  Jira Automation fires webhook → repository_dispatch
-        ▼
-[jira-ready-for-qa.yml]
-  1. Fetch Jira story (summary, labels, description, ACs)
-  2. Detect framework: cypress label → Cypress, else → Playwright
-  3. Review ACs with OpenAI gpt-4o-mini (score 1–5)
-  4. Post AC review comment to Jira
-  5. If score < 3.0 → REWRITE → transition back to "In Progress" → STOP
-  6. Create feature branch: auto/test-{issue-key}
-  7. Create GitHub Issue with automation instructions
-  8. Assign Copilot to the GitHub Issue
-  9. Transition Jira → "In QA"
- 10. Dispatch cypress.yml OR playwright.yml on the feature branch
-        │
-        ▼
-Copilot generates tests & commits to auto/test-{issue-key}
-        │
-        │  push to auto/** triggers CI workflow automatically
-        ▼
-[playwright.yml] OR [cypress.yml]
-  1. npm ci + install browsers/Cypress binary
-  2. Run all tests (excluding seed, example, .notimplemented stubs)
-  3. Upload JSON results artifact + HTML report artifact
-        │
-        ▼
-[post-results-to-jira.yml]  (triggers on workflow completion on auto/test-* branches)
-  1. Download JSON results artifact
-  2. Parse pass/fail/skip counts
-  3. Post test result comment to Jira
-  4. If all tests pass → transition Jira → "Done"
-  5. If all tests pass → open PR: auto/test-{issue-key} → dev
-```
+| Report generation fails | Warning logged, CI continues — report artifact skipped |
 
 ---
 
-## Repository structure
-
-```
-E2E-AgenticWorkflow/
-├── .github/
-│   ├── agents/                          # VS Code custom agent definitions
-│   │   ├── ac-reviewer.agent.md         # Review ACs for automation feasibility
-│   │   ├── playwright-test-planner.agent.md
-│   │   ├── playwright-test-generator.agent.md
-│   │   ├── playwright-test-healer.agent.md
-│   │   ├── cypress-test-generator.agent.md
-│   │   └── cypress-test-healer.agent.md  # NEW — healing for Cypress failures
-│   ├── instructions/
-│   │   ├── playwright.instructions.md   # Applied to qa-framework/frameworks/playwright/** automatically
-│   │   └── cypress.instructions.md      # Applied to qa-framework/frameworks/cypress/** automatically
-│   ├── workflows/
-│   │   ├── jira-ready-for-qa.yml        # Entry point — Jira webhook trigger
-│   │   ├── playwright.yml               # CI — runs Playwright tests
-│   │   ├── cypress.yml                  # CI — runs Cypress tests
-│   │   ├── post-results-to-jira.yml     # CI post-processor — Jira comments + Done + PR
-│   │   └── copilot-setup-steps.yml      # Copilot agent environment pre-install
-│   ├── copilot-instructions.md          # Agent routing rules (enforced globally)
-│   └── WORKFLOW-GUIDE.md               # Detailed pipeline walkthrough
-│
-├── qa-framework/                        # ALL framework code — single source of truth
-│   ├── common/
-│   │   ├── types/index.ts               # Shared TypeScript types (all frameworks)
-│   │   ├── utils/
-│   │   │   ├── logger.ts                # Structured JSON logger
-│   │   │   └── test-result-parser.ts    # Playwright & Cypress JSON result parser
-│   │   ├── jira/
-│   │   │   └── jira-client.ts           # Jira REST API v3 client (no SDK dependency)
-│   │   ├── github/
-│   │   │   └── github-client.ts         # GitHub REST API v3 client (no SDK dependency)
-│   │   ├── agents-core/
-│   │   │   └── ac-scorer.ts             # AC scoring logic + notimplemented stub generator
-│   │   └── pipeline-state/
-│   │       └── state-manager.ts         # Pipeline state persistence (idempotent re-runs)
-│   ├── frameworks/
-│   │   ├── playwright/                  # SauceDemo Playwright tests
-│   │   │   ├── playwright.config.ts
-│   │   │   ├── tests/                   # {app}-tc-{area}-{nn}-{desc}.spec.ts
-│   │   │   └── specs/                   # Test plans from @playwright-test-planner
-│   │   └── cypress/                     # Cypress tests
-│   │       ├── cypress.config.ts        # Mochawesome JSON reporter wired in
-│   │       ├── tests/                   # {app}-cy-{area}-{nn}-{desc}.cy.ts
-│   │       ├── fixtures/
-│   │       ├── pages/
-│   │       └── support/
-│   ├── notimplemented/
-│   │   ├── README.md                    # How to handle unautomatable ACs
-│   │   ├── _TEMPLATE.spec.ts            # Playwright stub template
-│   │   └── _TEMPLATE.cy.ts              # Cypress stub template
-│   └── state/
-│       └── .gitkeep                     # Directory for *.state.json files (committed per branch)
-│
-├── scripts/                             # CI validation scripts (lint-resilience, validate-fixtures)
-└── package.json                         # Single node_modules for all frameworks
-```
-
----
-
-## Required GitHub Secrets
-
-| Secret | Purpose |
-|--------|---------|
-| `ATLASSIAN_TOKEN` | Atlassian API token (from id.atlassian.com → API tokens) |
-| `OPENAI_API_KEY` | OpenAI key for AC quality review (model: gpt-4o-mini) |
-| `GH_PAT` | GitHub Classic PAT with `repo` + `workflow` scopes (for cross-workflow dispatch) |
-
-> `GITHUB_TOKEN` is auto-provisioned by Actions — no secret needed.
-> `ATLASSIAN_EMAIL` and `ATLASSIAN_CLOUD_ID` are hardcoded in `jira-ready-for-qa.yml` env block.
-
----
-
-## Jira Automation Rule Setup
-
-Create a Jira Automation Rule with:
-
-- **Trigger:** Issue transitioned → status = "Ready for QA"
-- **Action:** Send web request
-  - Method: `POST`
-  - URL: `https://api.github.com/repos/{owner}/{repo}/dispatches`
-  - Headers:
-    - `Authorization: Bearer YOUR_GH_PAT`
-    - `Content-Type: application/json`
-  - Body:
-    ```json
-    {
-      "event_type": "jira-ready-for-qa",
-      "client_payload": { "issue_key": "{{issue.key}}" }
-    }
-    ```
-
----
-
-## Framework Selection
-
-The pipeline auto-detects the framework from the Jira issue:
-
-| Jira label on issue | Framework used |
-|--------------------|---------------|
-| `cypress`          | Cypress        |
-| anything else      | Playwright (default) |
-
-Override manually via `workflow_dispatch → framework` input.
-
----
-
-## Agent Routing (VS Code)
-
-| Task | Agent | Command |
-|------|-------|---------|
-| Review ACs | `@ac-reviewer` | `@ac-reviewer SCRUM-42` |
-| Plan tests | `@playwright-test-planner` | `@playwright-test-planner <story or URL>` |
-| Generate Playwright test | `@playwright-test-generator` | `@playwright-test-generator <test plan item>` |
-| Fix failing Playwright test | `@playwright-test-healer` | `@playwright-test-healer <file or error>` |
-| Generate Cypress test | `@cypress-test-generator` | `@cypress-test-generator <test plan item>` |
-| Fix failing Cypress test | `@cypress-test-healer` | `@cypress-test-healer <file or error>` |
-
-> In default Copilot mode, do NOT generate or fix test files directly.
-> Always delegate to the agent listed above.
-
----
-
-## Unimplemented ACs
-
-When an AC cannot be automated, a stub file is created at:
-
-```
-qa-framework/notimplemented/{issue-key-lower}-ac-{n}.notimplemented.spec.ts
-qa-framework/notimplemented/{issue-key-lower}-ac-{n}.notimplemented.cy.ts
-```
-
-These files:
-- Contain the AC text and reason it could not be implemented
-- List exactly what is missing (selectors, data, non-UI scope)
-- Use `test.skip()` / `it.skip()` so they never block CI
-- Are excluded from test runs by `testIgnore` / `excludeSpecPattern`
-
-See [qa-framework/notimplemented/README.md](qa-framework/notimplemented/README.md) for instructions.
-
----
-
-## Running tests locally
-
-```bash
-# Playwright — SauceDemo
-npx playwright test --config=qa-framework/frameworks/playwright/playwright.config.ts
-
-# Cypress — interactive
-npx cypress open --config-file qa-framework/frameworks/cypress/cypress.config.ts
-
-# Cypress — headless
-npx cypress run --config-file qa-framework/frameworks/cypress/cypress.config.ts
-```
-
----
-
-## Adding a new app
-
-### Playwright
-
-1. Create `qa-framework/frameworks/playwright/playwright.config.ts` (already exists for SauceDemo)
-2. Add a job to `.github/workflows/playwright.yml` following the existing `test-saucedemo` pattern
-3. Use `@playwright-test-planner` to create a test plan, then `@playwright-test-generator` per scenario
-
-### Cypress
-
-1. Add a new subfolder under `qa-framework/frameworks/cypress/tests/{story-slug}/`
-2. Cypress config already picks up all `*.cy.ts` files recursively — no config change needed
-3. Use `@cypress-test-generator` to create spec files
-
----
-
-## Branch strategy
+## Branch Strategy
 
 | Branch | Purpose |
 |--------|---------|
 | `main` | Production-only. Clean at all times. |
-| `dev` | Active development. All work goes here. |
+| `dev` | Active development. All commits go here. |
 | `auto/test-{issue-key}` | Auto-created per Jira story by `jira-ready-for-qa.yml` |
+
+
