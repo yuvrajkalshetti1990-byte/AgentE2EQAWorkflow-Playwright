@@ -1,0 +1,11 @@
+{
+  "issueKey": "SCRUM-17",
+  "framework": "cypress",
+  "branch": "auto/test-scrum-17",
+  "createdAt": "2026-04-04T03:42:04.654Z",
+  "updatedAt": "2026-04-04T03:42:04.776Z",
+  "acVerdict": "AUTOMATE",
+  "acScore": 4.4,
+  "githubIssueNumber": 18,
+  "jiraStatus": "in-qa"
+}
