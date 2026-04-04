@@ -219,16 +219,18 @@ jobs:
     - name: Trigger post-results pipeline
       # Explicitly dispatch post-results-to-jira.yml when running on auto/test-* branches.
       # Required because workflow_run does NOT fire for workflow_dispatch-triggered runs.
-      # Use if: always() so this fires even when tests fail (we want failure comments on Jira too).
-      if: always() && startsWith(github.ref, 'refs/heads/auto/test-')
+      # Branch comes from inputs.ref (feature branch) because this workflow is dispatched
+      # with ref=dev (to get latest workflow file) but inputs.ref=$BRANCH (feature branch code).
+      if: always() && startsWith(inputs.ref || github.ref_name, 'auto/test-')
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
+        FEATURE_BRANCH="${{ inputs.ref || github.ref_name }}"
         gh workflow run post-results-to-jira.yml \
           --ref dev \
           --field run_id="${{ github.run_id }}" \
-          --field branch="${{ github.ref_name }}" \
+          --field branch="$FEATURE_BRANCH" \
           --field conclusion="${{ job.status }}" \
           --field head_sha="${{ github.sha }}" \
           --field workflow_name="Cypress Tests"
-        echo "::notice::post-results-to-jira.yml dispatched (run_id=${{ github.run_id }} branch=${{ github.ref_name }} conclusion=${{ job.status }})"
+        echo "::notice::post-results-to-jira.yml dispatched (run_id=${{ github.run_id }} branch=$FEATURE_BRANCH conclusion=${{ job.status }})"

@@ -747,12 +747,16 @@ jobs:
             WORKFLOW_FILE="playwright.yml"
           fi
 
+          # Dispatch with ref=dev so GitHub reads the latest workflow file from dev.
+          # Pass inputs.ref=$BRANCH so the checkout inside cypress/playwright.yml still
+          # checks out the feature branch code. Without this, GitHub uses the workflow
+          # file from auto/test-* which may predate recent pipeline fixes.
           HTTP_CODE=$(curl -s -o /tmp/dispatch_response.json -w "%{http_code}" \
             -X POST \
             -H "Authorization: token $GH_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/${{ github.repository }}/actions/workflows/$WORKFLOW_FILE/dispatches" \
-            -d "{\"ref\":\"$BRANCH\",\"inputs\":{\"ref\":\"$BRANCH\"}}")
+            -d "{\"ref\":\"dev\",\"inputs\":{\"ref\":\"$BRANCH\"}}")
 
           echo "::group::CI Dispatch Response (HTTP $HTTP_CODE)"
           echo "Workflow: $WORKFLOW_FILE"
