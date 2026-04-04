@@ -15,7 +15,6 @@ tools:
   - playwright/browser_navigate_back
   - playwright/browser_network_requests
   - playwright/browser_press_key
-  - playwright/browser_run_code
   - playwright/browser_select_option
   - playwright/browser_snapshot
   - playwright/browser_take_screenshot
@@ -183,6 +182,10 @@ How to authenticate (custom command, fixture, session caching).
 ```
 
 ## Loop Prevention — MANDATORY
+
+- **Never use browser tools to inspect the filesystem.** To check if a plan file already exists, use
+  the `edit` tool to attempt reading `qa-framework/frameworks/cypress/specs/`. Do NOT use any browser
+  tool for filesystem operations — they run inside a browser context where Node.js APIs (`require`, `fs`, `path`) are unavailable.
 
 - **`browser_wait_for` hard limit: 10 seconds.** If an element does not appear, take a `browser_snapshot`
   to see the actual state. Do NOT retry the same wait.
