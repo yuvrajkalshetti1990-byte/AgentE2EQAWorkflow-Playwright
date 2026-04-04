@@ -183,6 +183,29 @@ async function withRetry(label, fn) {
 }
 
 // ---------------------------------------------------------------------------
+// Branch existence check — used by dual-pipeline guard and PR creation
+// Returns true if branch exists, false on 404. Exits with code 1 on any
+// other error (auth / network failure) to prevent silent duplicate runs.
+// ---------------------------------------------------------------------------
+
+async function branchExists(branchName) {
+  try {
+    await httpsRequest('GET',
+      `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/git/ref/heads/${branchName}`,
+      Object.assign({ 'X-GitHub-Api-Version': '2022-11-28' }, githubAuth())
+    );
+    return true;
+  } catch (e) {
+    if (!e.message.includes('404')) {
+      // Unexpected error (auth / network) — fail loudly rather than risk duplication
+      error('SKIP', `Could not verify branch existence for ${branchName}: ${e.message}`);
+      process.exit(1);
+    }
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Step 1 — Fetch Jira issue
 // ---------------------------------------------------------------------------
 
@@ -660,7 +683,7 @@ Return ONLY the fixed TypeScript source code.`;
 const REQUIRED_REPORT_SECTIONS = [
   'Executive Summary',
   'Test Execution Results',
-  'Acceptance Criteria',   // matches '## 3. Acceptance Criteria Coverage'
+  'AC Coverage',           // matches '## 3. AC Coverage' (Acceptance Criteria coverage section)
   'Failure Analysis',
   'Healing Activities',
   'Coverage Summary',      // matches '## 6. Test Coverage Summary'
@@ -823,19 +846,12 @@ async function createPR(issueKey, framework, summary, testFiles) {
   if (!baseSha) throw new Error(`Could not resolve SHA for branch ${cfg.baseBranch}`);
 
   // Check if branch already exists — reuse it instead of creating
-  let branchExists = false;
-  try {
-    await httpsRequest('GET',
-      `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/git/ref/heads/${BRANCH_NAME}`,
-      Object.assign({ 'X-GitHub-Api-Version': '2022-11-28' }, githubAuth())
-    );
-    branchExists = true;
+  const branchAlreadyExists = await branchExists(BRANCH_NAME);
+  if (branchAlreadyExists) {
     info('PR', `Branch already exists — reusing: ${BRANCH_NAME}`);
-  } catch (e) {
-    if (!e.message.includes('404')) throw e;
   }
 
-  if (!branchExists) {
+  if (!branchAlreadyExists) {
     await httpsRequest('POST',
       `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/git/refs`,
       Object.assign({ 'X-GitHub-Api-Version': '2022-11-28' }, githubAuth()),
@@ -1000,29 +1016,22 @@ async function main() {
   // If the primary Jira-triggered pipeline (jira-ready-for-qa.yml) has already
   // created the auto/test-* branch, the QA orchestrator path (qa-automation.yml)
   // must NOT run — it would produce duplicate Jira comments and conflicting transitions.
-  try {
-    await httpsRequest('GET',
-      `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/git/ref/heads/${BRANCH_NAME}`,
-      Object.assign({ 'X-GitHub-Api-Version': '2022-11-28' }, githubAuth())
-    );
-    // Branch exists — primary Jira pipeline is already active for this issue
-    info('SKIP', `Branch ${BRANCH_NAME} already exists — primary Jira pipeline is active. Orchestrator exits to prevent duplicate execution.`);
+  if (await branchExists(BRANCH_NAME)) {
+    info('SKIP', `Primary Jira pipeline already active — branch ${BRANCH_NAME} exists. Skipping orchestrator.`);
     process.exit(0);
-  } catch (e) {
-    if (!e.message.includes('404')) {
-      // Unexpected error (auth / network) — fail loudly rather than risk duplication
-      error('SKIP', `Could not verify branch existence: ${e.message}`);
-      process.exit(1);
-    }
-    // 404 = branch does not exist → safe to proceed with orchestrator
-    info('ORCHESTRATOR', `Branch ${BRANCH_NAME} not found — proceeding with standalone pipeline`);
   }
+  info('ORCHESTRATOR', `Branch ${BRANCH_NAME} not found — proceeding with standalone pipeline`);
 
   // Load / init state
   let state = stateLoad();
   if (state) {
     info('STATE', `Resuming from existing state (created ${state.createdAt})`);
   }
+
+  // ── Quality gate pre-flight (BLOCKING — outside try/catch, throws and stops execution) ──
+  // Must run before any LLM calls or test execution. No try/catch wrapper — any
+  // violation throws immediately, halting the pipeline with a non-zero exit code.
+  runQualityGate();
 
   let jiraIssue, framework, testPlan, testFiles, testResult, reportFile, prUrl;
 
@@ -1031,9 +1040,6 @@ async function main() {
     jiraIssue  = await fetchJiraIssue();
     framework  = state?.framework || detectFramework(jiraIssue.labels);
     state      = stateSave({ framework, branch: BRANCH_NAME, issueTitle: jiraIssue.summary });
-
-    // ── 2. Quality gate pre-flight (BLOCKING — no try/catch) ─────────────────
-    runQualityGate();
 
     // ── 3. Planner ─────────────────────────────────────────────────────────
     if (state.planGenerated) {
