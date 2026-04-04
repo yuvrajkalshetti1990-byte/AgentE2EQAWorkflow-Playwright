@@ -137,6 +137,7 @@ Ensure the repository has **GitHub Copilot Enterprise** enabled so the Copilot c
 |-----|--------|
 | Jira issue has label `cypress` | Cypress tests generated |
 | No `cypress` label | Playwright tests generated (default) |
+| Jira issue has **both** `cypress` **and** `playwright` labels | ❌ **Pipeline fails with `FRAMEWORK_AMBIGUOUS`** — remove one label |
 | Manual `workflow_dispatch` → `framework: cypress` | Override |
 | Manual `workflow_dispatch` → `framework: playwright` | Override |
 
@@ -251,12 +252,52 @@ These stubs:
 - Are **excluded from CI** via `testIgnore` / `excludeSpecPattern`
 - Track what's not automated and why
 - Serve as work items to resolve
+- Are also created automatically by the orchestrator when the LLM healer exhausts all retry attempts
 
 See [qa-framework/notimplemented/README.md](qa-framework/notimplemented/README.md).
 
 ---
 
-## Pipeline State Management
+## Production Readiness & Quality Gates
+
+The pipeline enforces strict quality rules at every stage:
+
+### Pre-flight checks (BEFORE tests run)
+
+| Script | What it enforces | Frameworks |
+|--------|-----------------|------------|
+| `scripts/validate-test-quality.js` | Assertions present, not navigation-only, no weak-only assertions, AC traceability (`// Jira:`) | Playwright + Cypress |
+| `scripts/validate-test-quality.js` | `console.log()` in every Playwright file (observability) | Playwright |
+| `scripts/validate-test-quality.js` | `cy.log()` in every Cypress file (observability) | Cypress |
+| `scripts/validate-fixtures.js` | Every `cy.fixture()` has `@requiredFixtures` comment | Cypress |
+| `scripts/validate-playwright-tests.js` | No hardcoded credentials, `// Jira:` header, `console.log()` | Playwright |
+| `scripts/validate-cypress-tests.js` | Cypress-specific compliance | Cypress |
+
+All run **before** `npx playwright test` / `npx cypress run` in CI — failure exits before a browser is launched.
+
+### Orchestrator safety rules
+
+| Rule | Behaviour |
+|------|-----------|
+| **Dual framework labels** | `cypress` + `playwright` both present → immediate `FRAMEWORK_AMBIGUOUS` error |
+| **Healer max retries** | `HEALER_MAX_RETRIES` (default: 2) — after exhausting retries, file is moved to `notimplemented/` |
+| **Report validation** | Report must exist, be non-empty, and contain `Executive Summary`, `Test Results`, `Coverage` |
+| **Jira Done gate** | Transition to Done **only** when `passed=true` AND `failedCount === 0` |
+| **Branch safety** | Existing branch is reused instead of re-created — verified before committing |
+
+### Pipeline audit
+
+Run at any time to verify all components are wired:
+
+```bash
+node scripts/pipeline-audit.js
+```
+
+Currently checks 30 conditions (C01–C30). Exits 1 if any fail.
+
+---
+
+
 
 State is tracked per branch as `qa-framework/pipeline-state/{issue-key}.state.json` (committed to the feature branch).
 
