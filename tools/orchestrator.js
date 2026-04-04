@@ -725,14 +725,12 @@ function generateReport(framework, issueKey, resultsJson) {
     );
   }
 
-  try {
-    execSync(
-      `node scripts/generate-report.js --framework ${framework} --results-json "${resultsJson}" --story-key "${issueKey}"`,
-      { stdio: 'inherit' }
-    );
-  } catch (e) {
-    warn('REPORT', `generate-report.js exited non-zero: ${e.message}`);
-  }
+  // Layer 1 — Execution failure: let execSync throw naturally so the pipeline stops immediately.
+  // Layer 2 — Content validation: validateReport() below enforces all 7 required sections.
+  execSync(
+    `node scripts/generate-report.js --framework ${framework} --results-json "${resultsJson}" --story-key "${issueKey}"`,
+    { stdio: 'inherit' }
+  );
 
   // Resolve actual report file (handle casing variants)
   const candidates = [
@@ -786,8 +784,15 @@ async function updateJira(issueKey, passed, reportPath, testFiles, testStats) {
   }
 
   // Transition — ONLY move to Done when ALL tests passed (failed == 0)
-  // passed=true alone is not sufficient; we check failedCount explicitly
-  const failedCount  = testStats?.failed ?? (passed ? 0 : 1);
+  // Refuse to transition if stats are missing — avoids phantom success where
+  // the runner exited 0 but produced no parseable results JSON.
+  if (!testStats) {
+    throw new Error(
+      `Missing test stats for ${issueKey} — refusing Jira transition to prevent phantom Done status. ` +
+      'Ensure the test runner produced a parseable results JSON.'
+    );
+  }
+  const failedCount  = testStats.failed;
   const canTransDone = passed && failedCount === 0;
   const transitionId = canTransDone ? cfg.jiraDoneId : cfg.jiraInQaId;
   const transTarget  = canTransDone ? 'Done' : 'In QA';
