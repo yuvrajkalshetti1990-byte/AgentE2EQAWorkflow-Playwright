@@ -134,4 +134,18 @@ jobs:
         path: qa-framework/reports/
         retention-days: 30
 
-
+    - name: Trigger post-results pipeline
+      # Explicitly dispatch post-results-to-jira.yml when running on auto/test-* branches.
+      # Required because workflow_run does NOT fire for workflow_dispatch-triggered runs.
+      if: always() && startsWith(github.ref, 'refs/heads/auto/test-')
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh workflow run post-results-to-jira.yml \
+          --ref dev \
+          --field run_id="${{ github.run_id }}" \
+          --field branch="${{ github.ref_name }}" \
+          --field conclusion="${{ job.status }}" \
+          --field head_sha="${{ github.sha }}" \
+          --field workflow_name="Playwright Tests"
+        echo "::notice::post-results-to-jira.yml dispatched (run_id=${{ github.run_id }} branch=${{ github.ref_name }} conclusion=${{ job.status }})"
