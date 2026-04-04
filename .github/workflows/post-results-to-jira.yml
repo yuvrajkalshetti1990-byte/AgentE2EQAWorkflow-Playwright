@@ -4,12 +4,15 @@ name: Post Test Results to Jira
 # - Posts a comment on the Jira issue with pass/fail + test counts
 # - Transitions Jira to "Done" when all tests pass
 # - Opens a PR from auto/test-* -> dev when all tests pass
+#
+# NOTE: branches filter is intentionally OMITTED from workflow_run.
+# GitHub does NOT fire workflow_run when the triggering workflow was itself triggered by
+# workflow_dispatch (our CI dispatch step). Branch guard moved to job-level `if:` instead.
 
 on:
   workflow_run:
     workflows: ["Playwright Tests", "Cypress Tests"]
     types: [completed]
-    branches: ["auto/test-*"]
 
 env:
   ATLASSIAN_CLOUD_ID: c2269322-6897-4ede-8e92-04b6edd6edf6
@@ -22,7 +25,12 @@ jobs:
   report-to-jira:
     name: Report results to Jira
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion != 'skipped'
+    # Guard: only run for auto/test-* branches and non-skipped conclusions.
+    # Branch check replaces the removed workflow_run `branches:` filter (which doesn't fire
+    # for workflow_dispatch-triggered runs — a known GitHub Actions limitation).
+    if: >
+      github.event.workflow_run.conclusion != 'skipped' &&
+      startsWith(github.event.workflow_run.head_branch, 'auto/test-')
 
     permissions:
       actions: read
