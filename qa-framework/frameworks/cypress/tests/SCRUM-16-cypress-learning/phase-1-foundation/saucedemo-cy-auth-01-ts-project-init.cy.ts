@@ -5,12 +5,14 @@
 // All setup is done in the boilerplate itself; this test confirms it works.
 
 describe('SCRUM-17 | Assignment 1: TypeScript Project Initialization', () => {
+  // AC-1: Project is initialised — SauceDemo page title loads
   it('should visit SauceDemo and confirm the page title loads', () => {
     cy.log('STEP: visit SauceDemo homepage and verify title');
     cy.safeVisit('https://www.saucedemo.com/');
     cy.title().should('eq', 'Swag Labs');
   });
 
+  // AC-2: Login form elements (username, password, login button) are visible on the landing page
   it('should have the login form visible on the landing page', () => {
     cy.log('STEP: verify login form elements visible on landing page');
     cy.safeVisit('https://www.saucedemo.com/');

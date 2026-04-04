@@ -22,6 +22,7 @@ describe('SCRUM-23 | Assignment 7: Triggering Validation via Focus/Blur', () => 
     cartPage.clickCheckout();
   });
 
+  // AC-1: First Name input shows error state on focus then blur without entering a value
   it('should trigger error state on First Name input via focus then blur', () => {
     checkoutPage.assertOnStepOne();
 

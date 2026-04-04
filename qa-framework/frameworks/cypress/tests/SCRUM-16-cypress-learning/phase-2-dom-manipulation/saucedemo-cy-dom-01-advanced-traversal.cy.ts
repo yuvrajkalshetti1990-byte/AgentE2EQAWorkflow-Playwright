@@ -13,6 +13,7 @@ describe('SCRUM-21 | Assignment 5: Advanced DOM Traversal', () => {
     loginPage.login('standard_user', 'secret_sauce');
   });
 
+  // AC-1: Fleece Jacket can be added to cart via DOM traversal
   it('should add "Sauce Labs Fleece Jacket" to cart via DOM traversal', () => {
     cy.log('STEP: traverse DOM to find Fleece Jacket add-to-cart button');
     // Locate product title → traverse to card container → find its button

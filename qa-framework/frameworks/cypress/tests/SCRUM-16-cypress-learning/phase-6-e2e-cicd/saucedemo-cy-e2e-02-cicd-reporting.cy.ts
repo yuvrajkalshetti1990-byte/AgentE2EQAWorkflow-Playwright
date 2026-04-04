@@ -11,6 +11,7 @@
 //   4. Run: npm run test  →  open cypress/reports/index.html
 
 describe('SCRUM-36 | Assignment 20: CI/CD & HTML Reporting', () => {
+  // AC-1: SauceDemo login page loads headlessly in CI mode
   it('should run headlessly and confirm the SauceDemo login page loads', () => {
     cy.log('STEP: visit SauceDemo login page in headless CI mode');
     cy.safeVisit('https://www.saucedemo.com/');
@@ -18,6 +19,7 @@ describe('SCRUM-36 | Assignment 20: CI/CD & HTML Reporting', () => {
     cy.get('[data-test="login-button"]').should('be.visible');
   });
 
+  // AC-2: Full login flow completes successfully in CI mode
   it('should complete a quick login to confirm the full stack works in CI mode', () => {
     cy.log('STEP: full stack login via cy.login() in CI mode');
     cy.login('standard_user');

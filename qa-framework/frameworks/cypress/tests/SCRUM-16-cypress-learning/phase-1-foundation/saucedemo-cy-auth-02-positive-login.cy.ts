@@ -10,6 +10,7 @@ describe('SCRUM-18 | Assignment 2: The Positive Login Path', () => {
     loginPage.visit();
   });
 
+  // AC-1: standard_user login redirects to /inventory
   it('should login with standard_user and land on the inventory page', () => {
     cy.log('STEP: login with standard_user and assert redirect to inventory');
     loginPage.login('standard_user', 'secret_sauce');
