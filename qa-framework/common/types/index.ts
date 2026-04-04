@@ -152,6 +152,88 @@ export interface PipelineState {
 }
 
 // ---------------------------------------------------------------------------
+// AC Intelligence / Enrichment
+// ---------------------------------------------------------------------------
+
+export type AssertionHintKind =
+  | 'url-check'
+  | 'text-visible'
+  | 'element-visible'
+  | 'element-hidden'
+  | 'element-enabled'
+  | 'element-disabled'
+  | 'value-equals'
+  | 'count-equals'
+  | 'state-change'
+  | 'calculation';
+
+export interface AssertionHint {
+  kind:        AssertionHintKind;
+  description: string;
+  /** Pseudo-code snippet to paste into the generator */
+  snippet?:    string;
+}
+
+export type EdgeCaseKind =
+  | 'empty-input'
+  | 'invalid-input'
+  | 'boundary-value'
+  | 'special-characters'
+  | 'max-length'
+  | 'zero-quantity'
+  | 'concurrent-action';
+
+export interface EdgeCase {
+  kind:        EdgeCaseKind;
+  description: string;
+  testInput?:  string;
+  expectedOutcome: string;
+}
+
+/** A single AC enriched with structured, test-ready information. */
+export interface EnrichedAc {
+  /** Sequence number within the story (1-based) */
+  acNumber:    number;
+  /** Verbatim original AC text — NEVER modified */
+  originalText: string;
+  /** Verdict inherited from ac-scorer */
+  verdict:     AcVerdict;
+  /** Score inherited from ac-scorer */
+  score:       number;
+  /** Whether this AC can be automated as a browser test */
+  automatable: boolean;
+  /** Reason automation is impossible (only when automatable=false) */
+  nonAutomatableReason?: string;
+  /** Rewritten AC in Given/When/Then format (only for IMPROVE/REWRITE) */
+  enhancedText?: string;
+  /** Explicit expected outcomes broken out from the AC text */
+  expectedOutcomes: string[];
+  /** Validation conditions that must hold */
+  validationConditions: string[];
+  /** Concrete assertion hints for the test generator */
+  assertionHints: AssertionHint[];
+  /** Auto-expanded edge cases */
+  edgeCases: EdgeCase[];
+  /** Step-by-step breakdown (if AC was vague) */
+  testableSteps?: string[];
+  /** Suggested it()/test() title */
+  suggestedTestTitle: string;
+  notImplementedPath?: string;
+}
+
+/** Full enriched output for one Jira story — saved to qa-framework/intelligence/{key}-enhanced-ac.json */
+export interface EnhancedAcDocument {
+  storyKey:    string;
+  enrichedAt:  string;
+  framework:   TestFramework;
+  overallCanAutomate: boolean;
+  /** Pipeline gate recommendation */
+  pipelineAction: 'proceed' | 'proceed-with-warnings' | 'block';
+  originalAcs: string[];
+  enriched:    EnrichedAc[];
+}
+
+// ---------------------------------------------------------------------------
 // Unimplemented Test Stub
 // ---------------------------------------------------------------------------
 

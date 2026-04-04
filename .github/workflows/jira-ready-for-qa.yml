@@ -405,6 +405,98 @@ jobs:
           echo "Story moved back to In Progress — ACs require rewrite before automation can proceed."
           exit 1
 
+      - name: Enrich ACs (Test Intelligence Layer)
+        id: intelligence
+        env:
+          ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
+          FRAMEWORK: ${{ steps.jira.outputs.FRAMEWORK }}
+        run: |
+          unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
+          AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
+
+          # Fetch description to extract raw ACs
+          HTTP_CODE=$(curl --noproxy '*' -s -o /tmp/jira_desc_intel.json -w "%{http_code}" \
+            -H "Authorization: Basic $AUTH" \
+            -H "Accept: application/json" \
+            "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY?fields=description")
+
+          if [[ "$HTTP_CODE" != "200" ]]; then
+            echo "::warning::Could not fetch Jira description for enrichment (HTTP $HTTP_CODE) — skipping intelligence layer"
+            echo "INTELLIGENCE_ACTION=skipped" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Extract plain text description
+          DESC=$(cat /tmp/jira_desc_intel.json \
+            | jq -r '
+                def extract_text: . as $node |
+                  if type == "array" then map(extract_text) | add // ""
+                  elif type == "object" then
+                    if .type == "text" then .text // ""
+                    else (.content // [] | map(extract_text) | add // "")
+                    end
+                  else ""
+                  end;
+                .fields.description | extract_text')
+
+          if [[ -z "$DESC" || "$DESC" == "null" ]]; then
+            echo "::warning::No description found — skipping AC enrichment"
+            echo "INTELLIGENCE_ACTION=skipped" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Split description into individual AC lines (lines starting with AC or numbered)
+          # Write to a JSON array file for enrich-ac.js --acs-file
+          echo "$DESC" | \
+            grep -E '^\s*(AC[-: ]?\s*\d+|[0-9]+\.)' | \
+            sed 's/^\s*//' | \
+            jq -Rsc '[split("\n")[] | select(length > 0)]' \
+            > /tmp/acs.json
+
+          AC_COUNT=$(jq 'length' /tmp/acs.json)
+          echo "ACs extracted for enrichment: $AC_COUNT"
+
+          if [[ "$AC_COUNT" -eq 0 ]]; then
+            # Fallback: treat whole description as one AC
+            echo "[\"$DESC\"]" | jq . > /tmp/acs.json
+            AC_COUNT=1
+          fi
+
+          mkdir -p qa-framework/intelligence
+
+          # Run enrichment — exit 2 = REWRITE verdict (should not reach here — blocked above)
+          set +e
+          node scripts/enrich-ac.js \
+            --story-key  "$ISSUE_KEY" \
+            --acs-file   /tmp/acs.json \
+            --framework  "$FRAMEWORK"
+          ENRICH_EXIT=$?
+          set -e
+
+          INTEL_FILE="qa-framework/intelligence/${ISSUE_KEY}-enhanced-ac.json"
+          if [[ -f "$INTEL_FILE" ]]; then
+            PIPELINE_ACTION=$(jq -r '.pipelineAction' "$INTEL_FILE")
+            AUTOMATABLE=$(jq '[.enriched[] | select(.automatable == true)] | length' "$INTEL_FILE")
+            TOTAL=$(jq '.enriched | length' "$INTEL_FILE")
+            echo "::group::AC Intelligence Summary"
+            echo "Pipeline action:  $PIPELINE_ACTION"
+            echo "Automatable ACs:  $AUTOMATABLE / $TOTAL"
+            jq -r '.enriched[] | "  AC-\(.acNumber) [\(.verdict)] automatable=\(.automatable)\(if .nonAutomatableReason then " → NOT AUTOMATABLE: " + .nonAutomatableReason else "" end)"' "$INTEL_FILE"
+            echo "::endgroup::"
+            echo "INTELLIGENCE_ACTION=$PIPELINE_ACTION" >> "$GITHUB_OUTPUT"
+            echo "AUTOMATABLE_COUNT=$AUTOMATABLE"       >> "$GITHUB_OUTPUT"
+            echo "TOTAL_AC_COUNT=$TOTAL"                >> "$GITHUB_OUTPUT"
+            echo "::notice::Intelligence layer: $PIPELINE_ACTION ($AUTOMATABLE/$TOTAL ACs automatable)"
+          else
+            echo "::warning::Intelligence output not found — proceeding without enrichment"
+            echo "INTELLIGENCE_ACTION=skipped" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [[ $ENRICH_EXIT -eq 2 ]]; then
+            echo "::error::One or more ACs have REWRITE verdict — pipeline should have been blocked above"
+            exit 1
+          fi
+
       - name: Create feature branch
         id: branch
         run: |
@@ -460,8 +552,17 @@ jobs:
             exit 0
           fi
 
-          # --- Shared instruction block (AC traceability requirement) ---
+          # --- Shared instruction block (AC traceability + intelligence layer) ---
           # Built with printf to avoid heredoc YAML parsing issues
+          INTEL_FILE="qa-framework/intelligence/${ISSUE_KEY}-enhanced-ac.json"
+          INTEL_NOTE=""
+          if [[ -f "$INTEL_FILE" ]]; then
+            AUTOMATABLE="${{ steps.intelligence.outputs.AUTOMATABLE_COUNT }}"
+            TOTAL="${{ steps.intelligence.outputs.TOTAL_AC_COUNT }}"
+            INTEL_NOTE=$(printf '\n### Test Intelligence Layer\nEnhanced AC document available at `%s`\n- Automatable ACs: %s / %s\n- Use `enriched[n].assertionHints` for assertion snippets\n- Use `enriched[n].edgeCases` for additional test scenarios\n- ACs with `automatable=false` must be moved to notimplemented/' \
+              "$INTEL_FILE" "$AUTOMATABLE" "$TOTAL")
+          fi
+
           AC_TRACEABILITY=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
             '' \
             '### AC Traceability Requirements (MANDATORY)' \
@@ -474,18 +575,20 @@ jobs:
             '    document the reason and missing pieces — do NOT silently skip')
 
           if [[ "$FRAMEWORK" == "cypress" ]]; then
-            printf '## Automation Task\n\n**Jira Story:** [%s](%s/browse/%s)\n**Branch:** `%s`\n**Framework:** Cypress\n\n## Agent Instructions\n\nGenerate Cypress TypeScript E2E tests for ALL acceptance criteria in the Jira story.\n\n### File Conventions\n- Place files under `qa-framework/frameworks/cypress/tests/%s/`\n- Config: `qa-framework/frameworks/cypress/cypress.config.ts`\n- Naming: `{app-prefix}-cy-{area}-{seq:02d}-{kebab-description}.cy.ts`\n- One `it()` per acceptance criterion (1:1 AC → test mapping)\n- Selectors: prefer [data-cy], [data-testid], ARIA roles\n- Use `cy.session()` for login state caching\n- Use `cy.intercept()` for network stubbing/waiting\n%s\n\nCommit all test files to branch `%s`\n' \
+            printf '## Automation Task\n\n**Jira Story:** [%s](%s/browse/%s)\n**Branch:** `%s`\n**Framework:** Cypress\n\n## Agent Instructions\n\nGenerate Cypress TypeScript E2E tests for ALL acceptance criteria in the Jira story.\n\n### File Conventions\n- Place files under `qa-framework/frameworks/cypress/tests/%s/`\n- Config: `qa-framework/frameworks/cypress/cypress.config.ts`\n- Naming: `{app-prefix}-cy-{area}-{seq:02d}-{kebab-description}.cy.ts`\n- One `it()` per acceptance criterion (1:1 AC → test mapping)\n- Selectors: prefer [data-cy], [data-testid], ARIA roles\n- Use `cy.session()` for login state caching\n- Use `cy.intercept()` for network stubbing/waiting\n%s\n%s\n\nCommit all test files to branch `%s`\n' \
               "$ISSUE_KEY" "$ATLASSIAN_BASE_URL" "$ISSUE_KEY" "$BRANCH" \
               "$(echo "$ISSUE_KEY" | tr '[:upper:]' '[:lower:]')" \
               "$AC_TRACEABILITY" \
+              "$INTEL_NOTE" \
               "$BRANCH" \
               > /tmp/issue_body.md
             FRAMEWORK_LABEL="framework:cypress"
           else
-            printf '## Automation Task\n\n**Jira Story:** [%s](%s/browse/%s)\n**Branch:** `%s`\n**Framework:** Playwright\n\n## Agent Instructions\n\nGenerate Playwright TypeScript E2E tests for ALL acceptance criteria in the Jira story.\n\n### File Conventions\n- Place files under `qa-framework/frameworks/playwright/tests/%s/`\n- Config: `qa-framework/frameworks/playwright/playwright.config.ts`\n- Naming: `saucedemo-tc-{area}-{seq:02d}-{kebab-description}.spec.ts`\n- One `test()` per acceptance criterion (1:1 AC → test mapping)\n- Selectors: prefer [data-test], ARIA roles, [name] attributes\n- Use timestamp suffixes for dynamic test data\n%s\n\nCommit all test files to branch `%s`\n' \
+            printf '## Automation Task\n\n**Jira Story:** [%s](%s/browse/%s)\n**Branch:** `%s`\n**Framework:** Playwright\n\n## Agent Instructions\n\nGenerate Playwright TypeScript E2E tests for ALL acceptance criteria in the Jira story.\n\n### File Conventions\n- Place files under `qa-framework/frameworks/playwright/tests/%s/`\n- Config: `qa-framework/frameworks/playwright/playwright.config.ts`\n- Naming: `saucedemo-tc-{area}-{seq:02d}-{kebab-description}.spec.ts`\n- One `test()` per acceptance criterion (1:1 AC → test mapping)\n- Selectors: prefer [data-test], ARIA roles, [name] attributes\n- Use timestamp suffixes for dynamic test data\n%s\n%s\n\nCommit all test files to branch `%s`\n' \
               "$ISSUE_KEY" "$ATLASSIAN_BASE_URL" "$ISSUE_KEY" "$BRANCH" \
               "$(echo "$ISSUE_KEY" | tr '[:upper:]' '[:lower:]')" \
               "$AC_TRACEABILITY" \
+              "$INTEL_NOTE" \
               "$BRANCH" \
               > /tmp/issue_body.md
             FRAMEWORK_LABEL="framework:playwright"
@@ -544,14 +647,17 @@ jobs:
           node scripts/state.js get "$ISSUE_KEY"
           echo "::endgroup::"
 
-          # Commit and push the state file so subsequent runs can read it
+          # Commit state + intelligence file so subsequent runs and generators can read them
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add qa-framework/state/
+          # Stage intelligence output if it was produced
+          INTEL_FILE="qa-framework/intelligence/${ISSUE_KEY}-enhanced-ac.json"
+          [[ -f "$INTEL_FILE" ]] && git add "$INTEL_FILE"
           git diff --cached --quiet || {
-            git commit -m "chore(state): persist pipeline state for $ISSUE_KEY [skip ci]"
+            git commit -m "chore(intelligence): persist pipeline state + enriched ACs for $ISSUE_KEY [skip ci]"
             git push origin "$BRANCH"
-            echo "::notice::Pipeline state committed to $BRANCH"
+            echo "::notice::Pipeline state and AC intelligence committed to $BRANCH"
           }
 
       - name: Transition Jira issue to In QA
