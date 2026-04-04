@@ -147,11 +147,9 @@ jobs:
     - name: Warn — no spec files found
       if: steps.count_specs.outputs.SPEC_COUNT == '0'
       run: |
-        echo "::warning::No runnable Cypress specs found. Copilot must generate tests first."
-        echo "The CI run will be marked neutral (not a failure) — Jira will NOT be transitioned to Done."
-        # Exit with 0 so the workflow is marked success (neutral) rather than failure.
-        # post-results-to-jira.yml will see 0 passing tests and skip the Done transition.
-        exit 0
+        echo "::error::No runnable Cypress specs found — Copilot must generate tests before this workflow can pass."
+        echo "No Cypress specs found — failing pipeline"
+        exit 1
 
     - name: Upload Cypress videos
       uses: actions/upload-artifact@v4

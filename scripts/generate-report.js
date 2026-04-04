@@ -709,6 +709,25 @@ function main() {
 
   console.log(`[generate-report] Report written to: ${outFile}`);
   console.log(`[generate-report] Summary: ${run.total} total | ${run.passed} passed | ${run.failed} failed | ${run.skipped} skipped | ${fmtDuration(run.durationMs)}`);
+
+  // ── Self-validation: enforce all 7 required sections ────────────────────
+  const REQUIRED_SECTIONS = [
+    'Executive Summary',
+    'Test Execution Results',
+    'Acceptance Criteria',   // matches '## 3. Acceptance Criteria Coverage'
+    'Failure Analysis',
+    'Healing Activities',
+    'Coverage Summary',      // matches '## 6. Test Coverage Summary'
+    'Gaps & Recommendations',
+  ];
+
+  const missingSections = REQUIRED_SECTIONS.filter(s => !report.includes(s));
+  if (missingSections.length > 0) {
+    console.error('[generate-report] ERROR: Report validation failed — missing required section(s):');
+    missingSections.forEach(s => console.error(`  - ${s}`));
+    process.exit(1);
+  }
+  console.log('[generate-report] Report validation: OK — all 7 required sections present.');
 }
 
 main();

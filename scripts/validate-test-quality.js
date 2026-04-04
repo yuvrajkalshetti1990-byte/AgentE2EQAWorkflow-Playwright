@@ -84,13 +84,16 @@ function addViolation(file, rule, detail) {
   violations.push({ file: path.relative(process.cwd(), file), rule, detail });
 }
 
-function isExempt(filename) {
+function isExempt(filename, filePath) {
   return (
     filename === 'seed.spec.ts'    ||
     filename === 'example.spec.ts' ||
     filename.includes('.notimplemented.') ||
     filename === '_TEMPLATE.spec.ts' ||
-    filename === '_TEMPLATE.cy.ts'
+    filename === '_TEMPLATE.cy.ts'  ||
+    // SCRUM-16 is a learning/exploration series, not story-driven tests —
+    // AC traceability and per-test AC comments are not required.
+    (filePath && filePath.includes('SCRUM-16'))
   );
 }
 
@@ -295,7 +298,7 @@ function scanDir(dir, ext, checkFn) {
       const full = path.join(d, entry.name);
       if (entry.isDirectory()) { walk(full); continue; }
       if (!entry.name.endsWith(ext)) continue;
-      if (isExempt(entry.name)) continue;
+      if (isExempt(entry.name, full)) continue;
       checkFn(full);
     }
   })(dir);
@@ -317,7 +320,7 @@ const total = (function countFiles(dirs, exts) {
       for (const e of fs.readdirSync(d, { withFileTypes: true })) {
         const full = path.join(d, e.name);
         if (e.isDirectory()) walk(full);
-        else if (e.name.endsWith(ext) && !isExempt(e.name)) n++;
+        else if (e.name.endsWith(ext) && !isExempt(e.name, full)) n++;
       }
     })(dir);
   });
