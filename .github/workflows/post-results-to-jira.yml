@@ -342,8 +342,18 @@ jobs:
             exit 0
           fi
 
-          printf '## Automated test PR\n\nThis PR was created automatically after all CI tests passed on branch `%s`.\n\n**Jira story:** [%s](%s/browse/%s)\n\n### Checklist\n- [x] All CI jobs passed\n- [x] Jira transitioned to Done\n- [ ] Peer review\n- [ ] Merge to dev\n' \
-            "$BRANCH" "$ISSUE_KEY" "$ATLASSIAN_BASE_URL" "$ISSUE_KEY" > /tmp/pr_body.md
+          # Look up the open automation task issue number for this Jira key so
+          # merging the PR will auto-close it via the "Closes #N" keyword.
+          TASK_ISSUE=$(gh issue list --state open --label "automated-qa" --json number,title \
+            --jq ".[] | select(.title | test(\"$ISSUE_KEY\")) | .number" 2>/dev/null | head -1 || echo "")
+          if [[ -n "$TASK_ISSUE" ]]; then
+            CLOSES_LINE=$'\n'"Closes #${TASK_ISSUE}"
+          else
+            CLOSES_LINE=""
+          fi
+
+          printf '## Automated test PR\n\nThis PR was created automatically after all CI tests passed on branch `%s`.\n\n**Jira story:** [%s](%s/browse/%s)\n%s\n\n### Checklist\n- [x] All CI jobs passed\n- [x] Jira transitioned to Done\n- [ ] Peer review\n- [ ] Merge to dev\n' \
+            "$BRANCH" "$ISSUE_KEY" "$ATLASSIAN_BASE_URL" "$ISSUE_KEY" "$CLOSES_LINE" > /tmp/pr_body.md
 
           # Use || to gracefully handle concurrent creation (race condition between
           # Cypress and Playwright post-results runs firing at the same time)
