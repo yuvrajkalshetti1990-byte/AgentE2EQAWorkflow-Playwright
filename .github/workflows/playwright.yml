@@ -45,6 +45,9 @@ jobs:
     - name: "Pre-flight: Test quality gate (assertions + observability)"
       run: node scripts/validate-test-quality.js
 
+    - name: "Pre-flight: Playwright data validation"
+      run: node scripts/validate-playwright-data.js
+
     - name: "DEBUG: Environment info"
       run: |
         echo "::group::Environment"

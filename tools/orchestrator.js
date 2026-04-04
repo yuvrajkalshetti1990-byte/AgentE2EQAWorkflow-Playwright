@@ -467,10 +467,14 @@ function executeTests(framework, issueKey) {
       '--reporter', 'mochawesome',
       '--reporter-options', `reportDir=${resultsDir},overwrite=false,html=true,json=true`,
     ], {
-      stdio: 'inherit',
+      stdio: 'pipe',
       encoding: 'utf8',
       env: Object.assign({}, process.env, { FORCE_COLOR: '1' }),
     });
+    // Forward captured output to parent process for CI log visibility
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    const testOutput = [result.stdout || '', result.stderr || ''].join('\n').trim();
     const resultsJson = path.join(resultsDir, 'mochawesome.json');
     let stats = null;
     if (fs.existsSync(resultsJson)) {
@@ -484,6 +488,7 @@ function executeTests(framework, issueKey) {
       exitCode: result.status,
       resultsJson: fs.existsSync(resultsJson) ? resultsJson : null,
       stats,
+      output: testOutput,
     };
   }
 
@@ -496,10 +501,14 @@ function executeTests(framework, issueKey) {
     '--config', 'qa-framework/frameworks/playwright/playwright.config.ts',
     '--reporter', `json:${jsonReport}`,
   ], {
-    stdio: 'inherit',
+    stdio: 'pipe',
     encoding: 'utf8',
     env: Object.assign({}, process.env, { FORCE_COLOR: '1' }),
   });
+  // Forward captured output to parent process for CI log visibility
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  const testOutput = [result.stdout || '', result.stderr || ''].join('\n').trim();
 
   let stats = null;
   if (fs.existsSync(jsonReport)) {
@@ -513,6 +522,7 @@ function executeTests(framework, issueKey) {
     exitCode: result.status,
     resultsJson: fs.existsSync(jsonReport) ? jsonReport : null,
     stats,
+    output: testOutput,
   };
 }
 
@@ -1021,7 +1031,7 @@ async function main() {
       healerAttempt++;
       info('HEALER', `Tests failed — invoking healer (attempt ${healerAttempt}/${cfg.healerMaxRetries})`);
 
-      await runHealer(framework, cfg.issueKey, testFiles, '', healerAttempt);
+      await runHealer(framework, cfg.issueKey, testFiles, testResult.output || '', healerAttempt);
       state = stateSave({ healerAttempts: healerAttempt, [`healerRanAt${healerAttempt}`]: new Date().toISOString() });
 
       // Re-run tests after healing

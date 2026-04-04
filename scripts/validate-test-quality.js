@@ -141,6 +141,16 @@ function checkPlaywrightFile(filePath) {
           'Add specific assertions like toHaveText(), toHaveURL(), toBeVisible().');
       }
     }
+
+    // Rule 7: AC-level traceability — each test block must be preceded by // AC-N: comment
+    if (block.pos !== undefined) {
+      const preceding = src.slice(Math.max(0, block.pos - 300), block.pos);
+      if (!/\/\/\s*AC[-\s]?\d+/i.test(preceding)) {
+        addViolation(filePath, 'MISSING_AC_COMMENT',
+          `Test "${block.name}" is missing a "// AC-N:" traceability comment. ` +
+          'Add "// AC-1: <exact AC text from Jira>" immediately before each test().');
+      }
+    }
   }
 }
 
@@ -188,6 +198,16 @@ function checkCypressFile(filePath) {
         addViolation(filePath, 'WEAK_ASSERTIONS_ONLY',
           `Test "${block.name}" uses only .should('exist') or .should('be.visible'). ` +
           "Add value-checking assertions like .should('have.text', '...') or .should('have.value', '...').");
+      }
+    }
+
+    // Rule 8: AC-level traceability — each test block must be preceded by // AC-N: comment
+    if (block.pos !== undefined) {
+      const preceding = src.slice(Math.max(0, block.pos - 300), block.pos);
+      if (!/\/\/\s*AC[-\s]?\d+/i.test(preceding)) {
+        addViolation(filePath, 'MISSING_AC_COMMENT',
+          `Test "${block.name}" is missing a "// AC-N:" traceability comment. ` +
+          'Add "// AC-1: <exact AC text from Jira>" immediately before each it().');
       }
     }
   }
@@ -252,7 +272,7 @@ function extractTestBlocks(src, framework) {
     const body = src.slice(braceStart, i);
     // Only useful if body is non-trivial (>10 chars)
     if (body.length > 10) {
-      blocks.push({ name, src: body });
+      blocks.push({ name, src: body, pos: match.index });
     }
   }
 

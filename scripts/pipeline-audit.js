@@ -298,6 +298,23 @@ check('C30', 'testStats passed to updateJira for accurate failedCount', () => {
   return 'testResult.stats carries failed count through to updateJira';
 });
 
+check('C31', 'Playwright data validation script exists and fails loudly', () => {
+  const src = requireFile('scripts/validate-playwright-data.js');
+  requirePattern(src, /process\.exit\s*\(\s*1\s*\)/, 'validate-playwright-data.js');
+  requirePattern(src, /readFileSync|storageState|requiredFiles|REQUIRE_RE|FS_READ_RE/, 'validate-playwright-data.js');
+  return 'has exit(1) + data dependency checks (readFileSync/storageState/require)';
+});
+
+check('C32', 'validate-playwright-data.js runs before test execution in playwright.yml', () => {
+  const wf = requireFile('.github/workflows/playwright.yml');
+  const dataIdx = wf.indexOf('validate-playwright-data.js');
+  const runIdx  = wf.indexOf('npx playwright test');
+  if (dataIdx === -1) throw new Error('validate-playwright-data.js not found in playwright.yml');
+  if (runIdx  === -1) throw new Error('npx playwright test not found in playwright.yml');
+  if (dataIdx > runIdx) throw new Error('validate-playwright-data.js appears AFTER test execution in playwright.yml');
+  return 'validate-playwright-data.js precedes npx playwright test';
+});
+
 // ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
