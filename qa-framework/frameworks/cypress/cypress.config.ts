@@ -185,6 +185,10 @@ export default defineConfig({
           }
           return null;
         },
+
+        fileExists(filePath: string): boolean {
+          return fs.existsSync(path.resolve(__dirname, filePath));
+        },
       });
 
       return config;
