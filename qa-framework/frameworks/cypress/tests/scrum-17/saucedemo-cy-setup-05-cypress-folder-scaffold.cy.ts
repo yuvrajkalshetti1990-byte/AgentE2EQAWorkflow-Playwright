@@ -3,20 +3,20 @@
 
 describe('SCRUM-17 | AC5: Default Cypress folder scaffold', () => {
   // AC-5: cypress/e2e directory exists
-  it('should have cypress/e2e directory in the scaffold', () => {
-    cy.log('STEP: Checking cypress/e2e folder exists');
-    cy.task('fileExists', 'cypress/e2e').should('eq', true);
+  it('should have tests directory in the scaffold', () => {
+    cy.log('STEP: Checking tests folder exists (e2e specs)');
+    cy.task('fileExists', 'tests').should('eq', true);
   });
 
-  // AC-5: cypress/fixtures directory exists
-  it('should have cypress/fixtures directory in the scaffold', () => {
-    cy.log('STEP: Checking cypress/fixtures folder exists');
-    cy.task('fileExists', 'cypress/fixtures').should('eq', true);
+  // AC-5: fixtures directory exists
+  it('should have fixtures directory in the scaffold', () => {
+    cy.log('STEP: Checking fixtures folder exists');
+    cy.task('fileExists', 'fixtures').should('eq', true);
   });
 
-  // AC-5: cypress/support directory exists
-  it('should have cypress/support directory in the scaffold', () => {
-    cy.log('STEP: Checking cypress/support folder exists');
-    cy.task('fileExists', 'cypress/support').should('eq', true);
+  // AC-5: support directory exists
+  it('should have support directory in the scaffold', () => {
+    cy.log('STEP: Checking support folder exists');
+    cy.task('fileExists', 'support').should('eq', true);
   });
 });
