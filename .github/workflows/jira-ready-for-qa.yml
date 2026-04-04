@@ -653,6 +653,10 @@ jobs:
           # No || true — a failed checkout must surface immediately to prevent committing state to the wrong branch.
           git checkout "$BRANCH"
 
+          # Sync scripts/ from dev onto the feature branch in case the branch pre-dates
+          # the addition of state.js or other pipeline scripts (fixes MODULE_NOT_FOUND errors).
+          git checkout origin/dev -- scripts/ 2>/dev/null || true
+
           # Write/update state file using the plain-JS CLI (no npm install needed)
           node scripts/state.js init "$ISSUE_KEY" "$FRAMEWORK" "$BRANCH"
           node scripts/state.js set  "$ISSUE_KEY" acVerdict "${{ steps.ac_review.outputs.VERDICT }}"
