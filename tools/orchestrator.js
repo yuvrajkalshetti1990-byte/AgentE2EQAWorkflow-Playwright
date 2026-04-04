@@ -1069,6 +1069,13 @@ async function main() {
       state     = stateSave({ testsGenerated: true, generatedTestFiles: testFiles });
     }
 
+    // ── 4b. Post-generation quality gate (BLOCKING) ─────────────────────────
+    // Re-run the quality gate AFTER generation so that newly created test files
+    // are validated before execution. Files produced by runGenerator() bypassed
+    // the pre-flight gate that ran before orchestrator.js started.
+    info('GATE', 'Post-generation quality gate — validating newly generated test files');
+    runQualityGate();
+
     // ── 5. Execute tests ───────────────────────────────────────────────────
     testResult = executeTests(framework, cfg.issueKey);
     info('TEST-RUN', `Tests ${testResult.passed ? 'PASSED' : 'FAILED'} (exit ${testResult.exitCode})`);

@@ -38,6 +38,10 @@ env:
   ATLASSIAN_CLOUD_ID: c2269322-6897-4ede-8e92-04b6edd6edf6
   ATLASSIAN_BASE_URL: https://yuvrajkalshetti1990.atlassian.net
   ATLASSIAN_EMAIL: yuvrajkalshetti1990@gmail.com
+  # AC_GATE_STRICT: set to 'true' as a repository variable (Settings > Variables) to fail the
+  # pipeline when OpenAI is unavailable (prevents REWRITE-level ACs slipping through on API outages).
+  # Defaults to 'false' so unset repositories are unaffected.
+  AC_GATE_STRICT: ${{ vars.AC_GATE_STRICT || 'false' }}
 
 jobs:
   generate-tests:
@@ -145,10 +149,18 @@ jobs:
             FRAMEWORK="cypress"
           elif [[ "$MANUAL_FW" == "playwright" ]]; then
             FRAMEWORK="playwright"
-          elif echo "$LABELS" | grep -qi "cypress"; then
-            FRAMEWORK="cypress"
           else
-            FRAMEWORK="playwright"
+            # Auto-detect from Jira labels — fail loudly on ambiguous dual-label
+            HAS_CYPRESS=$(echo "$LABELS"    | grep -qi "cypress"    && echo "true" || echo "false")
+            HAS_PLAYWRIGHT=$(echo "$LABELS" | grep -qi "playwright" && echo "true" || echo "false")
+            if [[ "$HAS_CYPRESS" == "true" && "$HAS_PLAYWRIGHT" == "true" ]]; then
+              echo "::error::FRAMEWORK_AMBIGUOUS: ${ISSUE_KEY} has both 'cypress' and 'playwright' labels. Remove one label or use the 'framework' workflow_dispatch input to override."
+              exit 1
+            elif [[ "$HAS_CYPRESS" == "true" ]]; then
+              FRAMEWORK="cypress"
+            else
+              FRAMEWORK="playwright"
+            fi
           fi
 
           echo "ISSUE_SUMMARY=$SUMMARY" >> "$GITHUB_OUTPUT"
@@ -325,6 +337,17 @@ jobs:
           echo "Suggestions:$SUGGESTIONS"
           echo "::endgroup::"
           echo "::notice::AC Review: score=${SCORE} verdict=${VERDICT}"
+
+      - name: "Strict gate: fail when OpenAI AC review was skipped"
+        # Runs only when SCORE is 'N/A' (set by all OpenAI fallback paths) AND strict mode is on.
+        # Set AC_GATE_STRICT=true as a repository variable (Settings > Variables) to enable.
+        # Default is false so existing pipelines are unaffected.
+        if: steps.ac_review.outputs.SCORE == 'N/A' && env.AC_GATE_STRICT == 'true'
+        run: |
+          echo "::error::AC_GATE_STRICT is enabled and the OpenAI AC review was skipped (API unavailable)."
+          echo "::error::Manual AC review is required before automation can proceed for ${ISSUE_KEY}."
+          echo "Re-trigger this pipeline once the OpenAI API is available, or set AC_GATE_STRICT=false to allow soft-fail."
+          exit 1
 
       - name: Post AC review comment to Jira
         env:

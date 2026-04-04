@@ -317,9 +317,13 @@ jobs:
           if [[ "$HTTP" == "204" ]]; then
             echo "::notice::Jira ${ISSUE_KEY} → Done (HTTP 204)"
             echo "Jira $ISSUE_KEY transitioned to Done"
+          elif [[ "$HTTP" == "400" || "$HTTP" == "409" ]]; then
+            echo "::notice::Jira ${ISSUE_KEY} already in target state (HTTP $HTTP) — skipping transition"
+            echo "Jira $ISSUE_KEY already in Done or transition not applicable (HTTP $HTTP)"
           else
-            echo "::warning::Transition to Done returned HTTP $HTTP (issue may already be Done, or transition ID needs updating)"
-            echo "Transition to Done returned HTTP $HTTP (issue may already be Done, or transition ID needs updating)"
+            echo "::error::Jira Done transition failed — HTTP $HTTP. Check JIRA_DONE_TRANSITION_ID ('$JIRA_DONE_TRANSITION_ID') or Atlassian API permissions."
+            cat /tmp/jira_done.json 2>/dev/null || true
+            exit 1
           fi
 
       - name: Open PR into dev (on success)

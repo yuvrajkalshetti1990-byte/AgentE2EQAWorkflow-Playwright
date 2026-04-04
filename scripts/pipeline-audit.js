@@ -357,6 +357,61 @@ check('C36', 'post-results-to-jira.yml PR creation also gated on has_counts + fa
   return `has_counts guard appears ${hasCountsMatches}x and failed==0 guard appears ${failedMatches}x — Done and PR both gated`;
 });
 
+// ── New checks for violations fixed in April 2026 audit ───────────────────
+
+check('C37', 'Post-generation quality gate in orchestrator (V1 fix)', () => {
+  const orch = requireFile('tools/orchestrator.js');
+  // Quality gate must appear at least twice: once as pre-flight before the try block,
+  // and once after runGenerator() (post-generation gate)
+  const gateMatches = (orch.match(/runQualityGate\s*\(\s*\)/g) || []).length;
+  if (gateMatches < 2) throw new Error(
+    `runQualityGate() appears only ${gateMatches} time(s) — must appear both pre-flight AND post-generation`
+  );
+  // Post-generation gate must appear after the generator block
+  const generatorIdx   = orch.indexOf('testsGenerated: true');
+  const postGateIdx    = orch.indexOf('Post-generation quality gate');
+  if (postGateIdx === -1) throw new Error('Post-generation quality gate comment not found in orchestrator.js');
+  if (postGateIdx < generatorIdx) throw new Error('Post-generation quality gate appears BEFORE the generator block');
+  return `runQualityGate() called ${gateMatches}x — pre-flight + post-generation both enforced`;
+});
+
+check('C38', 'Dual-label FRAMEWORK_AMBIGUOUS guard in jira-ready-for-qa.yml (V2 fix)', () => {
+  const wf = requireFile('.github/workflows/jira-ready-for-qa.yml');
+  requirePattern(wf, /FRAMEWORK_AMBIGUOUS/, 'jira-ready-for-qa.yml');
+  requirePattern(wf, /HAS_CYPRESS.*HAS_PLAYWRIGHT|HAS_PLAYWRIGHT.*HAS_CYPRESS/, 'jira-ready-for-qa.yml');
+  requirePattern(wf, /both.*cypress.*playwright|cypress.*playwright.*labels/i, 'jira-ready-for-qa.yml');
+  // Must exit 1 on ambiguous labels
+  const ambigIdx = wf.indexOf('FRAMEWORK_AMBIGUOUS');
+  const exit1Idx = wf.indexOf('exit 1', ambigIdx);
+  if (exit1Idx === -1 || exit1Idx - ambigIdx > 300) {
+    throw new Error('No exit 1 found within 300 chars of FRAMEWORK_AMBIGUOUS — guard is not blocking');
+  }
+  return 'FRAMEWORK_AMBIGUOUS guard exits 1 on dual cypress+playwright labels';
+});
+
+check('C39', 'AC_GATE_STRICT mechanism in jira-ready-for-qa.yml (V3 fix)', () => {
+  const wf = requireFile('.github/workflows/jira-ready-for-qa.yml');
+  requirePattern(wf, /AC_GATE_STRICT/, 'jira-ready-for-qa.yml');
+  requirePattern(wf, /Strict gate.*fail when OpenAI|strict mode/i, 'jira-ready-for-qa.yml');
+  requirePattern(wf, /steps\.ac_review\.outputs\.SCORE.*==.*'N\/A'/, 'jira-ready-for-qa.yml');
+  return 'AC_GATE_STRICT env var wired — OpenAI-skip failures can be promoted to exit 1';
+});
+
+check('C40', 'Jira Done transition failure fails loudly (V4 fix)', () => {
+  const wf = requireFile('.github/workflows/post-results-to-jira.yml');
+  // Must not just warn on non-204/400/409 — must exit 1
+  requirePattern(wf, /::error::Jira Done transition failed/, 'post-results-to-jira.yml');
+  // Verify the else branch now exits 1 instead of just warning
+  const errorIdx = wf.indexOf('::error::Jira Done transition failed');
+  const exit1Idx = wf.indexOf('exit 1', errorIdx);
+  if (exit1Idx === -1 || exit1Idx - errorIdx > 250) {
+    throw new Error('exit 1 not found after error annotation — transition failure is still silent');
+  }
+  // Verify 400/409 (already-in-state) are still handled gracefully (not as errors)
+  requirePattern(wf, /400.*409|409.*400/, 'post-results-to-jira.yml — 400/409 graceful handling missing');
+  return 'exit 1 on Jira transition non-204/400/409; 400/409 handled gracefully';
+});
+
 // ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
