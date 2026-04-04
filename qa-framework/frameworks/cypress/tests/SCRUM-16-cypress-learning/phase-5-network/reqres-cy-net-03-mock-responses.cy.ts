@@ -4,6 +4,7 @@
 // @requiredFixtures: []
 
 describe('SCRUM-34 | Assignment 18: Mocking Network Responses (Negative UI Testing)', () => {
+  // AC-1: Stubbing GET endpoint with 500 returns mocked error response body
   it('should stub a GET endpoint with 500 and verify the stubbed response body', () => {
     // Intercept and stub BEFORE the fetch fires
     cy.intercept('GET', 'https://jsonplaceholder.typicode.com/posts/1', {

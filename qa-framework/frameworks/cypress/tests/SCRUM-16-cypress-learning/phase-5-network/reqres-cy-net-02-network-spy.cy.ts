@@ -4,6 +4,7 @@
 // @requiredFixtures: []
 
 describe('SCRUM-33 | Assignment 17: Spying on Network Calls', () => {
+  // AC-1: cy.intercept() spy captures fetch call and verifies response status 200
   it('should intercept and spy on a fetch call before it completes', () => {
     // Set up the spy BEFORE any request fires
     cy.intercept('GET', 'https://jsonplaceholder.typicode.com/posts/1').as('getPost');

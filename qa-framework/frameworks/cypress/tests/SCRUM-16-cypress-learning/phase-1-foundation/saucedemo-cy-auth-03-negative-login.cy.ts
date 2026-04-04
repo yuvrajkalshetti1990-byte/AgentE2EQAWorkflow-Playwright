@@ -10,6 +10,7 @@ describe('SCRUM-19 | Assignment 3: The Negative Login Path', () => {
     loginPage.visit();
   });
 
+  // AC-1: locked_out_user login shows an error message and stays on the login page
   it('should show an error and stay on login page for locked_out_user', () => {
     cy.log('STEP: attempt login with locked_out_user and assert error message');
     loginPage.login('locked_out_user', 'secret_sauce');

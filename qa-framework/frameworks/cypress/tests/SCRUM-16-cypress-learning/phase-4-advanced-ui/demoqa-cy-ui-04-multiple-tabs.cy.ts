@@ -10,6 +10,7 @@ describe('SCRUM-31 | Assignment 15: The Multiple Tabs Limitation', () => {
     browserWindowsPage.visit();
   });
 
+  // AC-1: window.open is called once when clicking New Tab — without opening a real tab
   it('should verify window.open is called once when clicking New Tab — without opening a real tab', () => {
     cy.log('STEP: stub window.open and click New Tab; assert called once');
     // Stub window.open BEFORE the click so Cypress intercepts it

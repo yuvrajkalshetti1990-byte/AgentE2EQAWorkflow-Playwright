@@ -10,6 +10,7 @@ describe('SCRUM-28 | Assignment 12: Handling Alerts & Confirmations', () => {
     alertsPage.visit();
   });
 
+  // AC-1: Accepting JS confirm dialog shows "You clicked: Ok"
   it('should auto-accept the JS confirm dialog and show "You clicked: Ok"', () => {
     cy.log('STEP: click JS confirm with default accept behaviour, assert result');
     // Cypress auto-accepts confirms by default
@@ -18,6 +19,7 @@ describe('SCRUM-28 | Assignment 12: Handling Alerts & Confirmations', () => {
     alertsPage.getResultText().should('have.text', 'You clicked: Ok');
   });
 
+  // AC-2: Cancelling JS confirm dialog shows "You clicked: Cancel"
   it('should cancel the JS confirm dialog and show "You clicked: Cancel"', () => {
     cy.log('STEP: override confirm to return false (cancel), assert result');
     // Return false to simulate clicking Cancel
