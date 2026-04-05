@@ -390,16 +390,16 @@ jobs:
             exit 0
           fi
 
-          PROMPT=$(printf '%s\n\n%s\n\n%s\n\n%s\n\n%s' \
+          PROMPT=$(printf '%s\n\n%s\n%s\n%s\n%s\n%s\n%s\n\n%s\n%s\n\n%s\n\n%s' \
             'You are an expert QA engineer. Rewrite each acceptance criterion (AC) in the Jira story below into a specific, testable Given/When/Then format.' \
-            'Rules per rewritten AC:
-- One single observable browser-verifiable behaviour per AC (split compound ACs into separate numbered items)
-- Include exact UI text, button labels, error messages, or URLs wherever inferable from context
-- The Then clause must describe a browser-verifiable outcome: visible element, URL change, displayed message, or state change
-- Use concrete test-data values rather than vague placeholders like "valid credentials" or "correct details"
-- Number the improved ACs starting from 1' \
-            'Return ONLY valid JSON — no markdown fences, no extra text, no explanation:
-{"improved_acs":[{"ac_number":1,"original":"<exact original AC text>","improved":"Given <precondition>\nWhen <action>\nThen <verifiable outcome>"}]}' \
+            'Rules per rewritten AC:' \
+            '- One single observable browser-verifiable behaviour per AC (split compound ACs into separate numbered items)' \
+            '- Include exact UI text, button labels, error messages, or URLs wherever inferable from context' \
+            '- The Then clause must describe a browser-verifiable outcome: visible element, URL change, displayed message, or state change' \
+            '- Use concrete test-data values rather than vague placeholders like "valid credentials" or "correct details"' \
+            '- Number the improved ACs starting from 1' \
+            'Return ONLY valid JSON — no markdown fences, no extra text, no explanation:' \
+            '{"improved_acs":[{"ac_number":1,"original":"<original AC text>","improved":"Given <precondition>\nWhen <action>\nThen <verifiable outcome>"}]}' \
             'Jira story acceptance criteria to improve:' \
             "$DESC")
 
