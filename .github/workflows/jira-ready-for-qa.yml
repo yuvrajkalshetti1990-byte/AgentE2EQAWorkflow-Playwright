@@ -526,7 +526,7 @@ jobs:
           echo "AC review comment posted to $ISSUE_KEY"
 
       - name: Block pipeline and move to In Progress if ACs need rewrite
-        if: steps.ac_review.outputs.VERDICT == 'REWRITE'
+        if: steps.ac_review.outputs.VERDICT == 'REWRITE' || steps.ac_review.outputs.VERDICT == 'IMPROVE'
         env:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
         run: |
@@ -538,7 +538,7 @@ jobs:
             -H "Content-Type: application/json" \
             "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY/transitions" \
             -d '{"transition": {"id": "21"}}'
-          echo "Story moved back to In Progress — ACs require rewrite before automation can proceed."
+          echo "Story moved back to In Progress — ACs have verdict ${{ steps.ac_review.outputs.VERDICT }}. Review the improved ACs in the Jira comment, update the story description, then move back to Ready for QA."
           exit 1
 
       - name: Enrich ACs (Test Intelligence Layer)
