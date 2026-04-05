@@ -432,26 +432,3 @@ jobs:
             fi
           fi
 
-      - name: Close automation task GitHub issue (on success)
-        # Belt-and-suspenders: explicitly close the issue so it doesn't stay open
-        # if 'Closes #N' keyword was missing from the PR body due to indexing lag.
-        if: >
-          steps.ctx.outputs.conclusion == 'success' &&
-          steps.download.outputs.failed == '0' &&
-          steps.download.outputs.has_counts == 'true'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_KEY: ${{ steps.extract.outputs.ISSUE_KEY }}
-        run: |
-          TASK_ISSUE=$(gh issue list --state open --label "automated-qa" \
-            --search "$ISSUE_KEY in:title" \
-            --json number,title \
-            --jq ".[] | select(.title | test(\"$ISSUE_KEY\")) | .number" 2>/dev/null | head -1 || echo "")
-          if [[ -n "$TASK_ISSUE" ]]; then
-            gh issue close "$TASK_ISSUE" --comment "✅ All CI tests passed. Jira [${ISSUE_KEY}](${ATLASSIAN_BASE_URL}/browse/${ISSUE_KEY}) transitioned to Done. Closing automation task." 2>/dev/null || true
-            echo "::notice::Closed GitHub issue #${TASK_ISSUE} for ${ISSUE_KEY}"
-          else
-            echo "No open automation task issue found for $ISSUE_KEY — already closed or was never created"
-          fi
-
