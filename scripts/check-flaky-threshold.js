@@ -115,7 +115,7 @@ console.log('FLAKY TEST GOVERNANCE REPORT');
 console.log('──────────────────────────────────────────────');
 console.log(`  Flaky tests detected : ${flakyCount}`);
 console.log(`  Fail threshold       : ${threshold}`);
-console.log(`  Fail mode            : ${failMode}`);
+console.log(`  Fail mode            : ${allowFlaky ? 'ALLOW_FLAKY (UNSTABLE)' : 'STRICT'}`);
 console.log('');
 
 if (flakyCount === 0) {
