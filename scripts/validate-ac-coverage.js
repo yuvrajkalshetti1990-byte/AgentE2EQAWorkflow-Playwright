@@ -130,27 +130,12 @@ if (implCount > 0) {
   console.log('');
 }
 
-// FRAMEWORK_LIMITATION stubs are permanently acknowledged — they cannot ever be automated.
-// Only unacknowledged (non-FRAMEWORK_LIMITATION) stubs fail the gate.
-const exemptStubs   = notImpl.filter(s => s.category === 'FRAMEWORK_LIMITATION');
-const blockingStubs = notImpl.filter(s => s.category !== 'FRAMEWORK_LIMITATION');
-const blockingCnt   = blockingStubs.length;
-
-if (exemptStubs.length > 0) {
-  console.log(`Acknowledged FRAMEWORK_LIMITATION stubs (${exemptStubs.length} — do not block gate):`);
-  exemptStubs.forEach(s => {
-    console.log(`  • ${s.jira} AC-${s.ac}: ${s.acText}`);
-    console.log(`    → stub: qa-framework/notimplemented/${s.file}`);
-  });
-  console.log('');
-}
-
-if (blockingCnt === 0) {
-  console.log('AC coverage gate: ✅ PASS — all tracked ACs are implemented or acknowledged as FRAMEWORK_LIMITATION.');
+if (notImplCnt === 0) {
+  console.log('AC coverage gate: ✅ PASS — all tracked ACs are implemented.');
   process.exit(0);
 }
 
-const label = blockingCnt === 1 ? '1 AC remains' : `${blockingCnt} ACs remain`;
+const label = notImplCnt === 1 ? '1 AC remains' : `${notImplCnt} ACs remain`;
 const msg   = `${label} NOT IMPLEMENTED — story cannot be marked Done until all ACs are covered.`;
 
 if (ALLOW_PARTIAL) {
@@ -163,14 +148,9 @@ if (ALLOW_PARTIAL) {
   // Strict enforcement (default)
   console.error('');
   console.error('AC coverage gate: ❌ FAIL — ' + msg);
-  console.error('Blocking stubs (must be resolved):');
-  blockingStubs.forEach(s => {
-    console.error(`  • ${s.jira} AC-${s.ac} [${s.category}]: ${s.acText}`);
-    console.error(`    → stub: qa-framework/notimplemented/${s.file}`);
-  });
   console.error('Resolve by:');
   console.error('  1. Completing automation for the above ACs, OR');
-  console.error('  2. Reclassifying as FRAMEWORK_LIMITATION in the stub header if genuinely not automatable, OR');
+  console.error('  2. Moving to notimplemented/ with a documented FRAMEWORK_LIMITATION, OR');
   console.error('  3. Setting ALLOW_PARTIAL_AC=true (emergency override only).');
   console.error('');
   process.exit(1);
