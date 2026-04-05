@@ -14,6 +14,6 @@ export class IframePage {
       .get(this.iframeSelector)
       .its('0.contentDocument.body')
       .should('not.be.empty')
-      .then(cy.wrap);
+      .then((body) => cy.wrap(body as JQuery<HTMLElement>)) as Cypress.Chainable<JQuery<HTMLElement>>;
   }
 }
