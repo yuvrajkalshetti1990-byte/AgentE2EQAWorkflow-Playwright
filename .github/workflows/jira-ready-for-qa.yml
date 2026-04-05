@@ -653,9 +653,11 @@ jobs:
           # No || true — a failed checkout must surface immediately to prevent committing state to the wrong branch.
           git checkout "$BRANCH"
 
-          # Sync scripts/ from dev onto the feature branch in case the branch pre-dates
-          # the addition of state.js or other pipeline scripts (fixes MODULE_NOT_FOUND errors).
+          # Sync scripts/ and tsconfigs from dev onto the feature branch in case the branch
+          # pre-dates recent fixes (prevents MODULE_NOT_FOUND and TS DOM type errors).
           git checkout origin/dev -- scripts/ 2>/dev/null || true
+          git checkout origin/dev -- qa-framework/frameworks/cypress/tsconfig.json 2>/dev/null || true
+          git checkout origin/dev -- qa-framework/frameworks/playwright/tsconfig.json 2>/dev/null || true
 
           # Write/update state file using the plain-JS CLI (no npm install needed)
           node scripts/state.js init "$ISSUE_KEY" "$FRAMEWORK" "$BRANCH"
