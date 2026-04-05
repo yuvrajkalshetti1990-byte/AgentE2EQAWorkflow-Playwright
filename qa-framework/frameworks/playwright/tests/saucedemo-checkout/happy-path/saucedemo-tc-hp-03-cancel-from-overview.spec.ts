@@ -38,6 +38,7 @@ test.describe('Happy Path – Full Checkout Flow', () => {
 
     // 5. Click Cancel on Overview page — returns to inventory
     await checkoutPage.clickCancel();
+    await expect(page).toHaveURL(/inventory\.html/);
 
     // 6. Verify cart badge still shows 1 (order was not placed)
     await inventoryPage.assertCartBadge('1');
