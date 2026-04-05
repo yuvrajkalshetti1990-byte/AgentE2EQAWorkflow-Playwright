@@ -17,7 +17,7 @@ on:
         default: 'dev'
 env:
   # Governance defaults — override by setting these as GitHub repository variables (Settings → Variables → Actions)
-  BASE_URL: ''
+  BASE_URL: 'https://www.saucedemo.com'
   REQUIRE_BASE_URL: 'true'
   EXPECTED_HOST: ''
   STRICT_MODE: 'true'
