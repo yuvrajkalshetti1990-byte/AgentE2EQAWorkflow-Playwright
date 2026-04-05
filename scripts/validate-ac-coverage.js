@@ -3,29 +3,29 @@
 /**
  * AC Coverage Enforcement Gate                                          (R2)
  *
- * Ensures no story ships with incomplete Acceptance Criteria coverage.
+ * STRICT MODE (default): FAILS the pipeline if any story has not-implemented ACs.
  *
  * Scans:
- *   - Implemented ACs: "// AC-N:" comments in test files
+ *   - Implemented ACs  : "// AC-N:" comments in .spec.ts / .cy.ts test files
  *   - NotImplemented ACs: @ac tags in qa-framework/notimplemented/ stubs
  *
  * Rules:
- *   - Reports total/implemented/notImplemented counts
- *   - If notImplemented > 0:
- *       AC_GATE_MODE=warn  (default) → print warning, exit 0
- *       AC_GATE_MODE=fail            → print details, exit 1
+ *   - If notImplemented > 0 → FAIL (exit 1) unless ALLOW_PARTIAL_AC=true
+ *   - ALLOW_PARTIAL_AC=true → warn only, exit 0 (explicit override required)
  *
  * Usage:
  *   node scripts/validate-ac-coverage.js
- *   AC_GATE_MODE=fail node scripts/validate-ac-coverage.js
+ *   ALLOW_PARTIAL_AC=true node scripts/validate-ac-coverage.js
  *
- * Exits 0 on pass/warn, 1 on fail.
+ * Exits 0 on pass or when ALLOW_PARTIAL_AC=true, 1 when not-implemented ACs found.
  */
 
 const fs   = require('fs');
 const path = require('path');
+const E    = require('./enforcement-config');
 
-const MODE    = process.env.AC_GATE_MODE || 'warn';   // 'warn' | 'fail'
+// ALLOW_PARTIAL_AC=true is the only escape hatch — must be explicit
+const ALLOW_PARTIAL = E.ALLOW_PARTIAL_AC;
 
 const PW_TESTS_DIR  = path.join('qa-framework', 'frameworks', 'playwright', 'tests');
 const CY_TESTS_DIR  = path.join('qa-framework', 'frameworks', 'cypress',    'tests');
@@ -131,22 +131,27 @@ if (implCount > 0) {
 }
 
 if (notImplCnt === 0) {
-  console.log('AC coverage gate: PASS — all tracked ACs are implemented.');
+  console.log('AC coverage gate: ✅ PASS — all tracked ACs are implemented.');
   process.exit(0);
 }
 
 const label = notImplCnt === 1 ? '1 AC remains' : `${notImplCnt} ACs remain`;
-const msg   = `${label} NOT IMPLEMENTED — manual verification required before story can be marked Done.`;
+const msg   = `${label} NOT IMPLEMENTED — story cannot be marked Done until all ACs are covered.`;
 
-if (MODE === 'fail') {
-  console.error('AC coverage gate: FAIL (AC_GATE_MODE=fail) — ' + msg);
-  console.error('Resolve by completing automation or explicitly marking stubs as accepted limitations.');
-  console.error('');
-  process.exit(1);
-} else {
-  // warn (default)
-  console.warn('AC coverage gate: WARN — ' + msg);
-  console.warn('Set AC_GATE_MODE=fail to block the pipeline on incomplete AC coverage.');
+if (ALLOW_PARTIAL) {
+  // Explicit override — warn but do not block
+  console.warn('AC coverage gate: ⚠️  WARN (ALLOW_PARTIAL_AC=true) — ' + msg);
+  console.warn('ALLOW_PARTIAL_AC is an emergency override. Do not ship with missing AC coverage.');
   console.warn('');
   process.exit(0);
+} else {
+  // Strict enforcement (default)
+  console.error('');
+  console.error('AC coverage gate: ❌ FAIL — ' + msg);
+  console.error('Resolve by:');
+  console.error('  1. Completing automation for the above ACs, OR');
+  console.error('  2. Moving to notimplemented/ with a documented FRAMEWORK_LIMITATION, OR');
+  console.error('  3. Setting ALLOW_PARTIAL_AC=true (emergency override only).');
+  console.error('');
+  process.exit(1);
 }

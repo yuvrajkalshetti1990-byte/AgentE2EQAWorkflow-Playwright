@@ -1,27 +1,14 @@
 /**
- * Test Execution Report Generator
+ * Test Execution Report Generator                                       (R5)
  *
- * Parses Playwright or Cypress Mochawesome test results JSON and produces a detailed,
- * human-readable Markdown report at:
- *   qa-framework/reports/{story-key}-test-report.md
- *
- * Usage:
- *   node scripts/generate-report.js \
- *     --framework playwright|cypress \
- *     --results-json <path-to-results.json> \
- *     --story-key   SCRUM-101 \
- *     --branch      auto/test-scrum-101 \
- *     --commit-sha  abc1234 \
- *     --run-url     https://github.com/.../actions/runs/123
- *
- *   All flags are optional except --framework and --results-json.
- *   Missing --story-key is inferred from suite titles or the branch name.
- *
- * Exits 0 always — a missing/corrupt results file produces a partial report.
+ * STRICT MODE (default): Exits 1 when overall run status is FAIL, BLOCKED,
+ * or UNSTABLE (configurable — UNSTABLE_FAILS_PIPELINE=true).
+ * No label-only reporting — pipeline exit code must reflect reality.
  */
 'use strict';
 const fs   = require('fs');
 const path = require('path');
+const E    = require('./enforcement-config');
 
 // ---------------------------------------------------------------------------
 // CLI arg parsing
@@ -847,6 +834,39 @@ function main() {
     process.exit(1);
   }
   console.log('[generate-report] Report validation: OK — all 7 required sections present.');
+
+  // ── Pipeline exit code enforcement (R5) ───────────────────────────────────
+  // The overall status must drive the process exit. No silent green on failure.
+  const overallStatus = computeOverallStatus(run);
+  const hasBocked     = buildNotImplemented().includes('🚫 BLOCKED');
+
+  if (run.failed > 0) {
+    console.error(`[generate-report] Pipeline status: ❌ FAIL — ${run.failed} test(s) failed.`);
+    console.error(`[generate-report] Full report: ${outFile}`);
+    process.exit(1);
+  }
+
+  if (hasBocked) {
+    console.error(`[generate-report] Pipeline status: 🚫 BLOCKED — story has unimplemented ACs.`);
+    console.error(`[generate-report] BLOCKED pipeline cannot be marked Done. Resolve ACs or document as FRAMEWORK_LIMITATION.`);
+    process.exit(1);
+  }
+
+  const flakyCount = run.browserGroups.flatMap(g =>
+    g.tests.filter(t => t.retries > 0 && t.status === 'passed')
+  ).length;
+
+  if (flakyCount > 0 && E.UNSTABLE_FAILS_PIPELINE) {
+    console.error(`[generate-report] Pipeline status: ⚠️ UNSTABLE — ${flakyCount} flaky test(s) detected.`);
+    console.error(`[generate-report] UNSTABLE pipeline exits 1 (UNSTABLE_FAILS_PIPELINE=true). Set UNSTABLE_FAILS_PIPELINE=false to warn only.`);
+    process.exit(1);
+  }
+
+  if (flakyCount > 0) {
+    console.warn(`[generate-report] Pipeline status: ⚠️ UNSTABLE — ${flakyCount} flaky test(s) (UNSTABLE_FAILS_PIPELINE=false, continuing).`);
+  } else {
+    console.log(`[generate-report] Pipeline status: ✅ PASS`);
+  }
 }
 
 main();

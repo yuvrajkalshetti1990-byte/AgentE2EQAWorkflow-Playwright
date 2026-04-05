@@ -58,7 +58,7 @@ test.describe('Happy Path – Full Checkout Flow', () => {
     await checkoutPage.assertOrderConfirmation();
 
     // 8. Navigate back to products
-    await page.locator('[data-test="back-to-products"]').click();
+    await checkoutPage.clickBackToProducts();
     console.log('[NAV] url=%s', page.url());
     await expect(page).toHaveURL(/inventory\.html/);
     console.log('[ASSERT] Verifying cart badge is absent after order completion');

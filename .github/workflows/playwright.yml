@@ -43,13 +43,15 @@ jobs:
       run: node scripts/preflight-env.js --framework playwright
       env:
         BASE_URL: ${{ vars.BASE_URL || '' }}
-        REQUIRE_BASE_URL: ${{ vars.REQUIRE_BASE_URL || 'false' }}
+        REQUIRE_BASE_URL: ${{ vars.REQUIRE_BASE_URL || 'true' }}
         EXPECTED_HOST: ${{ vars.EXPECTED_HOST || '' }}
+        STRICT_MODE: ${{ vars.STRICT_MODE || 'true' }}
 
     - name: "Pre-flight: AC coverage check"
       run: node scripts/validate-ac-coverage.js
       env:
-        AC_GATE_MODE: ${{ vars.AC_GATE_MODE || 'warn' }}
+        ALLOW_PARTIAL_AC: ${{ vars.ALLOW_PARTIAL_AC || 'false' }}
+        STRICT_MODE: ${{ vars.STRICT_MODE || 'true' }}
 
     - name: "Pre-flight: Playwright test compliance check"
       run: node scripts/validate-playwright-tests.js
@@ -109,11 +111,26 @@ jobs:
             --results-json "$RESULTS_FILE" \
             --framework playwright
         else
-          echo "::warning::Skipping flaky check — results.json not found"
+          echo "::error::Flaky check skipped — results.json not found. Tests did not produce output."
+          exit 1
         fi
       env:
         FLAKY_FAIL_THRESHOLD: ${{ vars.FLAKY_FAIL_THRESHOLD || '0' }}
-        FLAKY_FAIL_MODE: ${{ vars.FLAKY_FAIL_MODE || 'fail' }}
+        ALLOW_FLAKY: ${{ vars.ALLOW_FLAKY || 'false' }}
+        STRICT_MODE: ${{ vars.STRICT_MODE || 'true' }}
+
+    - name: "Post-run: AC execution validation"
+      if: always()
+      run: |
+        RESULTS_FILE="qa-framework/frameworks/playwright/test-results/results.json"
+        if [[ -f "$RESULTS_FILE" ]]; then
+          node scripts/validate-ac-execution.js \
+            --results-json "$RESULTS_FILE" \
+            --framework playwright
+        else
+          echo "::error::AC execution validation skipped — results.json not found."
+          exit 1
+        fi
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:

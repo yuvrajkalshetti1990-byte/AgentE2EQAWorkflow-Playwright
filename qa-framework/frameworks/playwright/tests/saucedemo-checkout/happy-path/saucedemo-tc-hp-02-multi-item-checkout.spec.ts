@@ -4,6 +4,8 @@
 import { test, expect } from '@playwright/test';
 import { LoginPage }     from '../../../pages/saucedemo/LoginPage';
 import { InventoryPage } from '../../../pages/saucedemo/InventoryPage';
+import { CartPage }      from '../../../pages/saucedemo/CartPage';
+import { CheckoutPage }  from '../../../pages/saucedemo/CheckoutPage';
 
 test.describe('Happy Path – Full Checkout Flow', () => {
   test.beforeEach(async ({ page }) => {
@@ -13,60 +15,46 @@ test.describe('Happy Path – Full Checkout Flow', () => {
   // AC-3: Complete multi-item checkout with correct price calculations
   test('TC-HP-02: Complete multi-item checkout with correct price calculations', async ({ page }) => {
     console.log('[STEP] Starting TC-HP-02: multi-item checkout and price verification');
-    await page.locator('[data-test="add-to-cart-sauce-labs-backpack"]').click();
+    const inventoryPage = new InventoryPage(page);
+    const cartPage      = new CartPage(page);
+    const checkoutPage  = new CheckoutPage(page);
 
-    // 2. Add Sauce Labs Bike Light to cart
-    await page.locator('[data-test="add-to-cart-sauce-labs-bike-light"]').click();
+    // 1. Add Sauce Labs Backpack and Bike Light to cart
+    await inventoryPage.addToCart('add-to-cart-sauce-labs-backpack');
+    await inventoryPage.addToCart('add-to-cart-sauce-labs-bike-light');
+    await inventoryPage.assertCartBadge('2');
 
-    // 3. Verify cart badge shows '2'
-    await expect(page.locator('.shopping_cart_badge')).toHaveText('2');
+    // 2. Navigate to cart page and verify both items
+    await inventoryPage.goToCart();
+    await cartPage.assertPageLoaded();
+    await cartPage.assertItem(0, 'Sauce Labs Backpack', '$29.99');
+    await cartPage.assertItem(1, 'Sauce Labs Bike Light', '$9.99');
 
-    // 4. Navigate to cart page
-    await new InventoryPage(page).goToCart();
+    // 3. Verify Continue Shopping and Checkout buttons are visible
+    await expect(page.locator(cartPage.continueShoppingButton)).toBeVisible();
+    await expect(page.locator(cartPage.checkoutButton)).toBeVisible();
 
-    // 5. Verify both items appear in cart with correct names and prices
-    const cartItemNames = page.locator('.inventory_item_name');
-    const cartItemPrices = page.locator('.inventory_item_price');
-    await expect(cartItemNames).toHaveCount(2);
-    await expect(cartItemNames.nth(0)).toHaveText('Sauce Labs Backpack');
-    await expect(cartItemNames.nth(1)).toHaveText('Sauce Labs Bike Light');
-    await expect(cartItemPrices.nth(0)).toHaveText('$29.99');
-    await expect(cartItemPrices.nth(1)).toHaveText('$9.99');
+    // 4. Click Checkout and fill info
+    await cartPage.clickCheckout();
+    await checkoutPage.fillInfo('Jane', 'Smith', '90210');
 
-    // 6. Verify Continue Shopping and Checkout buttons are visible
-    await expect(page.locator('[data-test="continue-shopping"]')).toBeVisible();
-    await expect(page.locator('[data-test="checkout"]')).toBeVisible();
+    // 5. Click Continue to proceed to overview
+    await checkoutPage.clickContinue();
 
-    // 7. Click Checkout button
-    await page.locator('[data-test="checkout"]').click();
-    await expect(page).toHaveURL(/checkout-step-one\.html/);
+    // 6. Verify overview shows both items
+    await checkoutPage.assertOverviewItem(0, 'Sauce Labs Backpack', '$29.99');
+    await checkoutPage.assertOverviewItem(1, 'Sauce Labs Bike Light', '$9.99');
 
-    // 8. Fill in checkout information
-    await page.locator('[data-test="firstName"]').fill('Jane');
-    await page.locator('[data-test="lastName"]').fill('Smith');
-    await page.locator('[data-test="postalCode"]').fill('90210');
+    // 7. Verify item total, tax, and overall total
+    await checkoutPage.assertOverviewSummary('Item total: $39.98', 'Tax: $3.20', 'Total: $43.18');
 
-    // 9. Click Continue to proceed to overview
-    await page.locator('[data-test="continue"]').click();
-    await expect(page).toHaveURL(/checkout-step-two\.html/);
+    // 8. Click Finish to place the order and verify confirmation
+    await checkoutPage.clickFinish();
+    await checkoutPage.assertOrderConfirmation();
 
-    // 10. Verify overview shows both items
-    await expect(page.locator('.inventory_item_name').nth(0)).toHaveText('Sauce Labs Backpack');
-    await expect(page.locator('.inventory_item_name').nth(1)).toHaveText('Sauce Labs Bike Light');
-
-    // 11. Verify item total, tax, and overall total
-    await expect(page.locator('.summary_subtotal_label')).toContainText('Item total: $39.98');
-    await expect(page.locator('.summary_tax_label')).toContainText('Tax: $3.20');
-    await expect(page.locator('.summary_total_label')).toContainText('Total: $43.18');
-
-    // 12. Click Finish to place the order
-    await page.locator('[data-test="finish"]').click();
-    await expect(page).toHaveURL(/checkout-complete\.html/);
-
-    // 13. Verify order confirmation and cart is cleared
+    // 9. Verify cart is cleared
     console.log('[ASSERT] Verifying order confirmation and empty cart badge');
-    await expect(page.locator('h2')).toHaveText('Thank you for your order!');
-    await expect(page.locator('.shopping_cart_badge')).not.toBeVisible();
+    await expect(page.locator(inventoryPage.cartBadge)).not.toBeVisible();
     console.log('[NAV] Final url: %s', page.url());
   });
 });

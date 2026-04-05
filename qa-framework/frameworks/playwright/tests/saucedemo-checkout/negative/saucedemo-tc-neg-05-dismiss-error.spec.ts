@@ -5,6 +5,7 @@ import { test, expect } from '@playwright/test';
 import { LoginPage }     from '../../../pages/saucedemo/LoginPage';
 import { InventoryPage } from '../../../pages/saucedemo/InventoryPage';
 import { CartPage }      from '../../../pages/saucedemo/CartPage';
+import { CheckoutPage }  from '../../../pages/saucedemo/CheckoutPage';
 
 test.describe('Negative / Validation Scenarios', () => {
   test.beforeEach(async ({ page }) => {
@@ -20,20 +21,22 @@ test.describe('Negative / Validation Scenarios', () => {
   // AC-9: Clicking the X button on a validation error dismisses the error message
   test('TC-NEG-05: Error dismissal by clicking the X on the error message', async ({ page }) => {
     console.log('[STEP] Starting TC-NEG-05: error dismissal via X button');
-    await page.locator('[data-test="continue"]').click();
-    await expect(page.locator('[data-test="error"]')).toContainText('Error: First Name is required');
+    const checkoutPage = new CheckoutPage(page);
+
+    // 1. Submit empty form to trigger error
+    await checkoutPage.submitEmpty();
+    await checkoutPage.assertError('Error: First Name is required');
+    await expect(page).toHaveURL(/checkout-step-one\.html/);
 
     // 2. Click the X close button on the error message
-    await page.locator('[data-test="error"] button').click();
+    await checkoutPage.dismissError();
 
     // 3. Assert error is dismissed and no longer visible
-    await expect(page.locator('[data-test="error"]')).not.toBeVisible();
+    await checkoutPage.assertErrorNotVisible();
 
     // 4. Assert form fields remain editable (user can still enter data)
     console.log('[ASSERT] Verifying form fields are still editable after error dismissal');
-    await expect(page.locator('[data-test="firstName"]')).toBeEditable();
-    await expect(page.locator('[data-test="lastName"]')).toBeEditable();
-    await expect(page.locator('[data-test="postalCode"]')).toBeEditable();
+    await checkoutPage.assertFormEditable();
     console.log('[NAV] Final url: %s', page.url());
   });
 });
