@@ -349,6 +349,102 @@ jobs:
           echo "Re-trigger this pipeline once the OpenAI API is available, or set AC_GATE_STRICT=false to allow soft-fail."
           exit 1
 
+      - name: Generate improved ACs with OpenAI
+        id: improved_acs
+        if: steps.ac_review.outputs.VERDICT == 'REWRITE' || steps.ac_review.outputs.VERDICT == 'IMPROVE'
+        continue-on-error: true  # Non-blocking — improved AC generation must never abort the pipeline
+        env:
+          ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
+
+          # Reuse Jira description already fetched in ac_review step.
+          # If it is missing (cached-verdict fast-path), fetch it fresh.
+          if [[ ! -f /tmp/jira_desc.json ]]; then
+            AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
+            HTTP_CODE=$(curl --noproxy '*' -s -o /tmp/jira_desc.json -w "%{http_code}" \
+              -H "Authorization: Basic $AUTH" \
+              -H "Accept: application/json" \
+              "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY?fields=description")
+            if [[ "$HTTP_CODE" != "200" ]]; then
+              echo "::warning::Could not fetch Jira description (HTTP $HTTP_CODE) — skipping improved AC generation"
+              exit 0
+            fi
+          fi
+
+          DESC=$(cat /tmp/jira_desc.json \
+            | jq -r '
+                def extract_text: . as $node |
+                  if type == "array" then map(extract_text) | add // ""
+                  elif type == "object" then
+                    if .type == "text" then .text // ""
+                    else (.content // [] | map(extract_text) | add // "")
+                    end
+                  else ""
+                  end;
+                .fields.description | extract_text')
+
+          if [[ -z "$DESC" || "$DESC" == "null" ]]; then
+            echo "::warning::No description found — skipping improved AC generation"
+            exit 0
+          fi
+
+          PROMPT=$(printf '%s\n\n%s\n\n%s\n\n%s\n\n%s' \
+            'You are an expert QA engineer. Rewrite each acceptance criterion (AC) in the Jira story below into a specific, testable Given/When/Then format.' \
+            'Rules per rewritten AC:
+- One single observable browser-verifiable behaviour per AC (split compound ACs into separate numbered items)
+- Include exact UI text, button labels, error messages, or URLs wherever inferable from context
+- The Then clause must describe a browser-verifiable outcome: visible element, URL change, displayed message, or state change
+- Use concrete test-data values rather than vague placeholders like "valid credentials" or "correct details"
+- Number the improved ACs starting from 1' \
+            'Return ONLY valid JSON — no markdown fences, no extra text, no explanation:
+{"improved_acs":[{"ac_number":1,"original":"<exact original AC text>","improved":"Given <precondition>\nWhen <action>\nThen <verifiable outcome>"}]}' \
+            'Jira story acceptance criteria to improve:' \
+            "$DESC")
+
+          HTTP_CODE=$(curl --noproxy '*' -s -o /tmp/openai_improved.json -w "%{http_code}" \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -H "Content-Type: application/json" \
+            https://api.openai.com/v1/chat/completions \
+            -d "{
+              \"model\": \"gpt-4o-mini\",
+              \"temperature\": 0.2,
+              \"messages\": [{\"role\": \"user\", \"content\": $(echo "$PROMPT" | jq -Rs .)}]
+            }")
+
+          echo "OpenAI improved ACs HTTP status: $HTTP_CODE"
+
+          if [[ "$HTTP_CODE" != "200" ]]; then
+            echo "::warning::OpenAI returned HTTP $HTTP_CODE — improved AC section will be omitted from comment"
+            exit 0
+          fi
+
+          AI_CONTENT=$(cat /tmp/openai_improved.json | jq -r '.choices[0].message.content // empty')
+          if [[ -z "$AI_CONTENT" ]]; then
+            echo "::warning::OpenAI returned empty content — improved AC section will be omitted from comment"
+            exit 0
+          fi
+
+          # Strip markdown code fences OpenAI sometimes adds
+          AI_CLEAN=$(echo "$AI_CONTENT" | sed 's/```json//g' | sed 's/```//g' | tr -d '\r' | sed '/^[[:space:]]*$/d')
+
+          AI_JSON=$(echo "$AI_CLEAN" | jq . 2>/dev/null)
+          if [[ -z "$AI_JSON" || "$AI_JSON" == "null" ]]; then
+            echo "::warning::Could not parse improved ACs JSON — improved AC section will be omitted from comment"
+            echo "Raw content: $AI_CONTENT"
+            exit 0
+          fi
+
+          if ! echo "$AI_JSON" | jq -e '.improved_acs | type == "array" and length > 0' > /dev/null 2>&1; then
+            echo "::warning::Improved ACs response missing or empty 'improved_acs' array — skipping"
+            exit 0
+          fi
+
+          echo "$AI_JSON" > /tmp/improved_acs.json
+          COUNT=$(echo "$AI_JSON" | jq '.improved_acs | length')
+          echo "::notice::Generated $COUNT improved AC(s) for $ISSUE_KEY"
+
       - name: Post AC review comment to Jira
         env:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
@@ -372,14 +468,30 @@ jobs:
           ISSUE_ITEMS=$(make_list_items "$ISSUES")
           SUGGESTION_ITEMS=$(make_list_items "$SUGGESTIONS")
 
+          # Build improved AC ADF nodes if OpenAI generated them (REWRITE/IMPROVE verdict only).
+          # Each AC becomes an h4 heading + gherkin codeBlock for easy copy-paste into Jira.
+          IMPROVED_AC_NODES='[]'
+          if [[ -f /tmp/improved_acs.json ]]; then
+            IMPROVED_AC_NODES=$(jq -c '[
+              {"type":"heading","attrs":{"level":3},"content":[{"type":"text","text":"Improved Acceptance Criteria"}]},
+              {"type":"paragraph","content":[{"type":"text","text":"The following rewrites were generated by AI. Copy them into your Jira story description (replacing the original ACs), then move the story back to Ready for QA.","marks":[{"type":"em"}]}]},
+              (.improved_acs[] | . as $ac | [
+                {"type":"heading","attrs":{"level":4},"content":[{"type":"text","text":("AC-" + ($ac.ac_number | tostring) + " \u2014 Improved")}]},
+                {"type":"codeBlock","attrs":{"language":"gherkin"},"content":[{"type":"text","text":$ac.improved}]}
+              ][])
+            ]' /tmp/improved_acs.json 2>/dev/null || echo '[]')
+          fi
+
           # Build the full ADF document body using jq — handles all special-char escaping.
           # Bullet-list sections are omitted entirely when they have no items.
+          # Improved AC section is appended only when improved_ac_nodes is non-empty.
           BODY=$(jq -n \
             --arg score "$SCORE" \
             --arg verdict "$VERDICT" \
             --arg summary "$SUMMARY" \
             --argjson issue_items "$ISSUE_ITEMS" \
             --argjson suggestion_items "$SUGGESTION_ITEMS" \
+            --argjson improved_ac_nodes "$IMPROVED_AC_NODES" \
             '
             def section(heading; items):
               if (items | length) > 0 then
@@ -400,6 +512,7 @@ jobs:
                   ]
                   + section("Issues Found"; $issue_items)
                   + section("Suggestions"; $suggestion_items)
+                  + $improved_ac_nodes
                 )
               }
             }

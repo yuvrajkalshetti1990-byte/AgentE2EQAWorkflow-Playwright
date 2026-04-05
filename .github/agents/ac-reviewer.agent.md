@@ -107,7 +107,29 @@ Post this as a Jira comment using `addCommentToJiraIssue`:
 | AC-3 | 3.5 | IMPROVE | Add specific error message text |
 
 **Recommendation:** Address REWRITE and IMPROVE items before invoking @playwright-test-planner or @cypress-test-generator.
+---
+
+### Improved Acceptance Criteria
+
+> Only include this section when one or more ACs are REWRITE or IMPROVE.
+> Copy the rewrites below into your Jira story description, replacing the original ACs.
+> Once updated, move the story back to **Ready for QA** — the pipeline will re-run cleanly.
+
+**AC-2 — Improved:**
+```gherkin
+Given the user is on the login page
+When they enter username "standard_user" and password "wrong_password" and click Login
+Then the error message "Epic sadface: Username and password do not match any user in this service" is displayed below the form
+AND the password field is cleared
+AND the username field retains its value
 ```
+
+**AC-3 — Improved:**
+```gherkin
+Given the user has an item in their cart
+When they navigate to the cart and click Checkout
+Then the checkout form is displayed with fields for First Name, Last Name, and Zip Code
+``````
 
 ---
 
@@ -118,6 +140,9 @@ Post this as a Jira comment using `addCommentToJiraIssue`:
 - If an AC is genuinely not automatable (e.g. physical hardware, email inbox), label it `MANUAL ONLY` and explain why
 - If ACs are missing common cases (missing error paths, missing empty-state handling), flag them as gaps and propose new ACs
 - Be constructive — the goal is to help the team, not to reject the story
+- **When any AC is REWRITE or IMPROVE, always append an "Improved Acceptance Criteria" section** at the end of the comment — collect all rewritten ACs in one place so the team can copy-paste them directly into the Jira description and move the story back to Ready for QA
+- The format for each improved AC is a Given/When/Then block using exact UI text, messages, and URLs where inferable from the story context
+- Only include ACs that are REWRITE or IMPROVE in the improved section — skip ACs already labelled AUTOMATE
 
 ---
 
