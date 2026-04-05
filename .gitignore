@@ -21,6 +21,12 @@ node_modules/
 /qa-framework/frameworks/cypress/results/
 /qa-framework/frameworks/cypress/screenshots/
 /qa-framework/frameworks/cypress/downloads/
+/qa-framework/frameworks/cypress/reports/
+
+# qa-framework generated reports (committed as QA artifacts)
+
+# qa-framework intelligence layer (committed to feature branches by CI)
+/qa-framework/intelligence/*.json
 
 # Playwright MCP server runtime artifacts
 .playwright-mcp/

@@ -7,5 +7,22 @@
   "acVerdict": "AUTOMATE",
   "acScore": 4,
   "githubIssueNumber": 24,
-  "jiraStatus": "in-qa"
+  "jiraStatus": "in-qa",
+  "planGenerated": true,
+  "testsGenerated": true,
+  "testsPassed": true,
+  "postHealExitCode": 0,
+  "healerExhausted": false,
+  "testRunSummary": {
+    "passed": 3,
+    "failed": 0,
+    "skipped": 0,
+    "duration": 3000
+  },
+  "reportGenerated": true,
+  "reportPath": "qa-framework/reports/run-2026-04-05-master-report.md",
+  "generatedTestFiles": [
+    "qa-framework/frameworks/cypress/tests/SCRUM-18-positive-login/saucedemo-cy-auth-01-positive-login.cy.ts"
+  ]
 }
+

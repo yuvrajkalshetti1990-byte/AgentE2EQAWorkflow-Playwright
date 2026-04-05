@@ -16,6 +16,14 @@ on:
         required: false
         default: 'dev'
 
+env:
+  # Governance defaults — override by setting these as GitHub repository variables (Settings → Variables → Actions)
+  BASE_URL: 'https://www.saucedemo.com'
+  REQUIRE_BASE_URL: 'true'
+  EXPECTED_HOST: ''
+  STRICT_MODE: 'true'
+  ALLOW_PARTIAL_AC: 'false'
+
 jobs:
   test-cypress:
     name: Cypress E2E Tests
@@ -35,6 +43,13 @@ jobs:
 
     - name: Install Cypress binary
       run: npx cypress install
+
+    - name: "Pre-flight: TypeScript compilation check"
+      run: |
+        echo "::group::TypeScript compilation"
+        npx tsc --noEmit -p qa-framework/frameworks/cypress/tsconfig.json
+        echo "::endgroup::"
+        echo "::notice::TypeScript compilation: OK"
 
     - name: "DEBUG: Environment info"
       run: |
@@ -101,11 +116,23 @@ jobs:
     - name: "Fixture validation: all cy.fixture() calls must have @requiredFixtures"
       run: node scripts/validate-fixtures.js
 
+    - name: "Pre-flight: Environment validation"
+      run: node scripts/preflight-env.js --framework cypress
+
+    - name: "Pre-flight: AC coverage check"
+      run: node scripts/validate-ac-coverage.js
+
+    - name: "Pre-flight: Cypress test compliance check"
+      run: node scripts/validate-cypress-tests.js
+
+    - name: "Pre-flight: Test quality gate (assertions + observability + cy.log)"
+      run: node scripts/validate-test-quality.js
+
     - name: Run Cypress tests
       if: steps.count_specs.outputs.SPEC_COUNT != '0'
       run: |
         mkdir -p qa-framework/frameworks/cypress/reports
-        npx cypress run --config-file qa-framework/frameworks/cypress/cypress.config.ts
+        npx cypress run --config-file qa-framework/frameworks/cypress/cypress.config.ts --browser chrome
 
     - name: "DEBUG: Cypress results"
       if: always() && steps.count_specs.outputs.SPEC_COUNT != '0'
@@ -134,11 +161,9 @@ jobs:
     - name: Warn — no spec files found
       if: steps.count_specs.outputs.SPEC_COUNT == '0'
       run: |
-        echo "::warning::No runnable Cypress specs found. Copilot must generate tests first."
-        echo "The CI run will be marked neutral (not a failure) — Jira will NOT be transitioned to Done."
-        # Exit with 0 so the workflow is marked success (neutral) rather than failure.
-        # post-results-to-jira.yml will see 0 passing tests and skip the Done transition.
-        exit 0
+        echo "::error::No runnable Cypress specs found — Copilot must generate tests before this workflow can pass."
+        echo "No Cypress specs found — failing pipeline"
+        exit 1
 
     - name: Upload Cypress videos
       uses: actions/upload-artifact@v4
@@ -164,3 +189,62 @@ jobs:
         name: cypress-test-results-json
         path: qa-framework/frameworks/cypress/reports/
         retention-days: 30
+
+    - name: Generate test execution report
+      if: always() && steps.count_specs.outputs.SPEC_COUNT != '0'
+      run: |
+        BRANCH="${GITHUB_REF_NAME:-${GITHUB_REF}}"
+        if [[ "$BRANCH" =~ auto/test-(.+) ]]; then
+          SLUG="${BASH_REMATCH[1]}"
+          ISSUE_KEY=$(echo "$SLUG" | tr '[:lower:]' '[:upper:]' | sed 's/-\([0-9]\)/-\1/')
+        else
+          ISSUE_KEY="PIPELINE-${GITHUB_RUN_NUMBER}"
+        fi
+        RESULTS_FILE=""
+        if [[ -f "qa-framework/frameworks/cypress/reports/results.json" ]]; then
+          RESULTS_FILE="qa-framework/frameworks/cypress/reports/results.json"
+        elif [[ -f "qa-framework/frameworks/cypress/reports/mochawesome.json" ]]; then
+          RESULTS_FILE="qa-framework/frameworks/cypress/reports/mochawesome.json"
+        fi
+        if [[ -z "$RESULTS_FILE" ]]; then
+          echo "::warning::No Cypress results JSON found — skipping report generation"
+          exit 0
+        fi
+        node scripts/generate-report.js \
+          --framework cypress \
+          --results-json "$RESULTS_FILE" \
+          --story-key   "$ISSUE_KEY" \
+          --branch      "$BRANCH" \
+          --commit-sha  "$GITHUB_SHA" \
+          --run-url     "https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+        echo "::group::Report preview"
+        head -30 "qa-framework/reports/${ISSUE_KEY}-test-report.md" 2>/dev/null || echo "(report not found)"
+        echo "::endgroup::"
+
+    - name: Upload test execution report
+      uses: actions/upload-artifact@v4
+      if: always() && steps.count_specs.outputs.SPEC_COUNT != '0'
+      with:
+        # Name ends with -test-report-md so post-results-to-jira.yml picks it up
+        name: cypress-test-report-md
+        path: qa-framework/reports/
+        retention-days: 30
+
+    - name: Trigger post-results pipeline
+      # Explicitly dispatch post-results-to-jira.yml when running on auto/test-* branches.
+      # Required because workflow_run does NOT fire for workflow_dispatch-triggered runs.
+      # Branch comes from inputs.ref (feature branch) because this workflow is dispatched
+      # with ref=dev (to get latest workflow file) but inputs.ref=$BRANCH (feature branch code).
+      if: always() && startsWith(inputs.ref || github.ref_name, 'auto/test-')
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        FEATURE_BRANCH="${{ inputs.ref || github.ref_name }}"
+        gh workflow run post-results-to-jira.yml \
+          --ref dev \
+          --field run_id="${{ github.run_id }}" \
+          --field branch="$FEATURE_BRANCH" \
+          --field conclusion="${{ job.status }}" \
+          --field head_sha="${{ github.sha }}" \
+          --field workflow_name="Cypress Tests"
+        echo "::notice::post-results-to-jira.yml dispatched (run_id=${{ github.run_id }} branch=$FEATURE_BRANCH conclusion=${{ job.status }})"

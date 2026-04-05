@@ -5,7 +5,7 @@ export class LoginPage {
   private readonly errorMessage = '[data-test="error"]';
 
   visit(): void {
-    cy.safeVisit('https://www.saucedemo.com/');
+    cy.safeVisit('/');
   }
 
   enterUsername(username: string): void {

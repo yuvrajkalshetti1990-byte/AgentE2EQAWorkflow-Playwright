@@ -28,6 +28,7 @@ describe('SCRUM-18: Positive Login Path — SauceDemo', () => {
     cy.get('.title').should('be.visible').and('have.text', 'Products');
   });
 
+  // AC-3: At least one inventory item is displayed on the inventory page
   it('should display at least one inventory item on the inventory page', () => {
     cy.log('STEP: Asserting at least one inventory item is present');
     cy.get('.inventory_item').then($items => cy.log('ASSERT: Inventory item count = ' + $items.length));

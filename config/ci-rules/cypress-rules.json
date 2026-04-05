@@ -1,0 +1,98 @@
+{
+  "framework": "cypress",
+  "version": "1.0.0",
+  "planner": {
+    "testStructure": ["describe()", "it()"],
+    "commands": ["cy.safeVisit()", "cy.get()", "cy.contains()"],
+    "assertionStrategy": ".should()",
+    "customCommands": ["cy.login()", "cy.safeVisit()", "cy.apiRequest()", "cy.withinIframe()", "cy.session()"],
+    "noDirectCyVisit": true,
+    "outputStructure": "AC → Scenario → Steps (Cypress-aligned)",
+    "requiredSectionHints": [
+      "Selector in priority order: [data-test] > id > name > ARIA role > stable class",
+      "Relative URL path for precondition (never https://...)",
+      "AC number reference (e.g. AC-1:)",
+      "Custom command to use (cy.login(), cy.safeVisit(), cy.apiRequest())",
+      "Any cy.intercept() requirements for network assertions"
+    ],
+    "forbiddenInPlan": [
+      "cy.visit(",
+      "cy.request(",
+      "page.goto",
+      "test(",
+      "expect(",
+      "https://"
+    ]
+  },
+  "generator": {
+    "mandatoryRules": [
+      "File MUST start with: // Jira: <issue-key>",
+      "File MUST use describe() / it() structure",
+      "All navigation MUST use cy.safeVisit() — cy.visit() is FORBIDDEN and CI-linted",
+      "All HTTP requests MUST use cy.apiRequest() — cy.request() is FORBIDDEN and CI-linted",
+      "Every it() block MUST contain at least one .should() / expect() / cy.should() assertion",
+      "No hardcoded credential strings in .type() — use (Cypress.env('username') as string | undefined) ?? 'standard_user'",
+      "No it.skip() or xit() without a // @skip-reason: <explanation> comment",
+      "File MUST contain at least one cy.log() call",
+      "cy.log() calls MUST annotate major action blocks and assertions",
+      "If cy.fixture() or .selectFile('cypress/fixtures/...') is used, line 3 MUST have: // @requiredFixtures: [...]",
+      "cy.safeVisit() MUST use relative paths — never absolute URLs in safeVisit",
+      "Authentication MUST use cy.login() or cy.session() before visiting protected routes",
+      "Each it() MUST have an AC traceability comment above it (e.g. // AC-1: ...)",
+      "Iframe interactions MUST use cy.withinIframe() — never raw .its('contentDocument.body')",
+      "Non-UI ACs MUST produce a notimplemented stub — never silently skip"
+    ],
+    "forbiddenPatterns": [
+      "cy.visit(",
+      "cy.request(",
+      ".type('standard_user')",
+      ".type('secret_sauce')",
+      "it.skip(",
+      "xit(",
+      "cy.safeVisit('https://",
+      "cy.safeVisit(\"https://"
+    ],
+    "requiredPatterns": [
+      "// Jira:",
+      "cy.log(",
+      ".should(",
+      "cy.safeVisit("
+    ],
+    "customCommandDocs": {
+      "cy.login()": "Built-in — uses Cypress.env('username') ?? 'standard_user' with safe defaults",
+      "cy.safeVisit()": "Built-in — adds failOnStatusCode:false and logs landed URL",
+      "cy.apiRequest()": "Built-in — injects x-api-key from Cypress.env('REQRES_API_KEY')",
+      "cy.withinIframe()": "Built-in — wraps iframe interaction to avoid raw DOM access"
+    },
+    "observabilityRules": {
+      "logBeforeEachActionBlock": "cy.log('STEP: ...')",
+      "logAfterNavigation": "cy.url().then(url => cy.log('NAV: ' + url))",
+      "logBeforeAssertions": "cy.url().then(url => cy.log('ASSERT: ...' + url))",
+      "logOnIntercept": "cy.wait('@alias').then(({ response }) => cy.log('INTERCEPT status=' + response?.statusCode))"
+    },
+    "credentialRules": {
+      "mustUseCypressEnvWithFallback": true,
+      "defaultFallback": "(Cypress.env('username') as string | undefined) ?? 'standard_user'",
+      "passwordFallback": "(Cypress.env('password') as string | undefined) ?? 'secret_sauce'"
+    },
+    "fixtureRules": {
+      "requireMetadataComment": "// @requiredFixtures: [\"file.json\"]",
+      "metadataLine": 3,
+      "knownFixtures": ["users.json", "checkout-user.json", "test.txt", "example.json"]
+    },
+    "notImplementedStubPath": "qa-framework/notimplemented/{issue-key-lower}-ac-{n}.notimplemented.cy.ts",
+    "stubTemplate": "qa-framework/notimplemented/_TEMPLATE.cy.ts",
+    "ciGates": ["validate-cypress-tests.js"],
+    "ciGateRejectionReasons": [
+      "No // Jira: <issue-key> header",
+      "No cy.log() call",
+      "Hardcoded credential string in .type()",
+      "cy.visit() used instead of cy.safeVisit()",
+      "cy.request() used instead of cy.apiRequest()",
+      "it() block with zero assertions",
+      "it.skip() or xit() without @skip-reason comment",
+      "cy.fixture() without @requiredFixtures metadata",
+      "cy.safeVisit() with hardcoded absolute URL"
+    ]
+  }
+}

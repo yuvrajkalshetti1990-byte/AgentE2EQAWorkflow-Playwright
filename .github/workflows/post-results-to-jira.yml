@@ -4,12 +4,36 @@ name: Post Test Results to Jira
 # - Posts a comment on the Jira issue with pass/fail + test counts
 # - Transitions Jira to "Done" when all tests pass
 # - Opens a PR from auto/test-* -> dev when all tests pass
+#
+# DUAL TRIGGER STRATEGY:
+# - workflow_run   → fires when CI was triggered by a push event (e.g. Copilot commits tests)
+# - workflow_dispatch → fired explicitly at the END of cypress.yml / playwright.yml when
+#   those workflows were started via workflow_dispatch (our pipeline dispatch step).
+#   GitHub does NOT fire workflow_run for workflow_dispatch-triggered workflows.
 
 on:
   workflow_run:
     workflows: ["Playwright Tests", "Cypress Tests"]
     types: [completed]
-    branches: ["auto/test-*"]
+  # Direct call from end of cypress.yml / playwright.yml (workflow_dispatch path)
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Run ID of the CI workflow that completed'
+        required: true
+      branch:
+        description: 'Feature branch name (e.g. auto/test-scrum-18)'
+        required: true
+      conclusion:
+        description: 'Job conclusion: success | failure | cancelled'
+        required: true
+      head_sha:
+        description: 'HEAD SHA of the feature branch'
+        required: true
+      workflow_name:
+        description: 'Name of the triggering test workflow'
+        required: false
+        default: 'CI Tests'
 
 env:
   ATLASSIAN_CLOUD_ID: c2269322-6897-4ede-8e92-04b6edd6edf6
@@ -22,7 +46,12 @@ jobs:
   report-to-jira:
     name: Report results to Jira
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion != 'skipped'
+    # Allow both trigger paths:
+    # - workflow_dispatch: fired directly by cypress.yml/playwright.yml (pipeline dispatch path)
+    # - workflow_run: fired by push-triggered CI runs (Copilot commit push path)
+    if: >
+      (github.event_name == 'workflow_dispatch' && startsWith(inputs.branch, 'auto/test-')) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion != 'skipped' && startsWith(github.event.workflow_run.head_branch, 'auto/test-'))
 
     permissions:
       actions: read
@@ -30,37 +59,56 @@ jobs:
       pull-requests: write
 
     steps:
+      - name: Normalize trigger context
+        id: ctx
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "run_id=${{ inputs.run_id }}"         >> "$GITHUB_OUTPUT"
+            echo "branch=${{ inputs.branch }}"         >> "$GITHUB_OUTPUT"
+            echo "conclusion=${{ inputs.conclusion }}" >> "$GITHUB_OUTPUT"
+            echo "head_sha=${{ inputs.head_sha }}"     >> "$GITHUB_OUTPUT"
+            echo "workflow_name=${{ inputs.workflow_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_id=${{ github.event.workflow_run.id }}"             >> "$GITHUB_OUTPUT"
+            echo "branch=${{ github.event.workflow_run.head_branch }}"    >> "$GITHUB_OUTPUT"
+            echo "conclusion=${{ github.event.workflow_run.conclusion }}" >> "$GITHUB_OUTPUT"
+            echo "head_sha=${{ github.event.workflow_run.head_sha }}"     >> "$GITHUB_OUTPUT"
+            echo "workflow_name=${{ github.event.workflow_run.name }}"    >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ steps.ctx.outputs.head_sha }}
 
       - name: Extract Jira issue key from branch name
         id: extract
         run: |
-          BRANCH="${{ github.event.workflow_run.head_branch }}"
+          BRANCH="${{ steps.ctx.outputs.branch }}"
           # Branch format: auto/test-scrum-8  ->  SCRUM-8
           ISSUE_KEY=$(echo "$BRANCH" | sed 's|auto/test-||' | tr '[:lower:]' '[:upper:]' | sed 's/-\([0-9]\)/-\1/')
           echo "ISSUE_KEY=$ISSUE_KEY" >> "$GITHUB_OUTPUT"
           echo "BRANCH=$BRANCH"       >> "$GITHUB_OUTPUT"
 
           echo "::group::Trigger Context"
-          echo "Triggering workflow: ${{ github.event.workflow_run.name }}"
-          echo "Conclusion:          ${{ github.event.workflow_run.conclusion }}"
-          echo "Run ID:              ${{ github.event.workflow_run.id }}"
+          echo "Triggering workflow: ${{ steps.ctx.outputs.workflow_name }}"
+          echo "Conclusion:          ${{ steps.ctx.outputs.conclusion }}"
+          echo "Run ID:              ${{ steps.ctx.outputs.run_id }}"
           echo "Branch:              $BRANCH"
           echo "Extracted key:       $ISSUE_KEY"
-          echo "Head SHA:            ${{ github.event.workflow_run.head_sha }}"
-          echo "Run URL:             https://github.com/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}"
+          echo "Head SHA:            ${{ steps.ctx.outputs.head_sha }}"
+          echo "Run URL:             https://github.com/${{ github.repository }}/actions/runs/${{ steps.ctx.outputs.run_id }}"
           echo "::endgroup::"
-          echo "::notice::Triggered by: ${{ github.event.workflow_run.name }} (conclusion=${{ github.event.workflow_run.conclusion }}) branch=$BRANCH key=$ISSUE_KEY"
+          echo "::notice::Triggered by: ${{ steps.ctx.outputs.workflow_name }} (conclusion=${{ steps.ctx.outputs.conclusion }}) branch=$BRANCH key=$ISSUE_KEY"
 
       - name: Download test results JSON (Playwright + Cypress)
         id: download
+        env:
+          INPUT_RUN_ID: ${{ steps.ctx.outputs.run_id }}
         uses: actions/github-script@v7
         with:
           script: |
-            const runId = context.payload.workflow_run.id;
+            const runId = parseInt(process.env.INPUT_RUN_ID);
             const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -74,6 +122,16 @@ jobs:
             const { execSync } = require('child_process');
             let totalPassed = 0, totalFailed = 0, totalSkipped = 0;
             let countsFound = false;
+            let reportArtifactUrl = '';
+
+            for (const artifact of artifacts.data.artifacts) {
+              // Capture the URL for any *-test-report-md artifact so we can link it from Jira
+              if (artifact.name.endsWith('-test-report-md') && !reportArtifactUrl) {
+                reportArtifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${runId}`;
+                console.log(`Found report artifact: ${artifact.name} → linking run at ${reportArtifactUrl}`);
+              }
+            }
+            core.setOutput('report_run_url', reportArtifactUrl);
 
             for (const artifact of artifacts.data.artifacts) {
               // Match any artifact that ends with -test-results-json
@@ -145,17 +203,17 @@ jobs:
       - name: Build result summary
         id: result
         run: |
-          CONCLUSION="${{ github.event.workflow_run.conclusion }}"
-          RUN_ID="${{ github.event.workflow_run.id }}"
+          CONCLUSION="${{ steps.ctx.outputs.conclusion }}"
+          RUN_ID="${{ steps.ctx.outputs.run_id }}"
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/$RUN_ID"
-          SHA="${{ github.event.workflow_run.head_sha }}"
+          SHA="${{ steps.ctx.outputs.head_sha }}"
           SHORT_SHA="${SHA:0:7}"
           PASSED="${{ steps.download.outputs.passed }}"
           FAILED="${{ steps.download.outputs.failed }}"
           SKIPPED="${{ steps.download.outputs.skipped }}"
           TOTAL="${{ steps.download.outputs.total }}"
           HAS_COUNTS="${{ steps.download.outputs.has_counts }}"
-          WORKFLOW="${{ github.event.workflow_run.name }}"
+          WORKFLOW="${{ steps.ctx.outputs.workflow_name }}"
 
           if [[ "$CONCLUSION" == "success" ]]; then
             ICON="PASSED"
@@ -209,9 +267,18 @@ jobs:
           SHORT_SHA: ${{ steps.result.outputs.SHORT_SHA }}
           BRANCH: ${{ steps.extract.outputs.BRANCH }}
           WORKFLOW: ${{ steps.result.outputs.WORKFLOW }}
+          REPORT_RUN_URL: ${{ steps.download.outputs.report_run_url }}
         run: |
           unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
+
+          # Build the report link list item — only include if a report artifact was found
+          if [[ -n "$REPORT_RUN_URL" ]]; then
+            REPORT_ITEM="{ \"type\": \"listItem\", \"content\": [{ \"type\": \"paragraph\", \"content\": [{ \"type\": \"text\", \"text\": \"Test Execution Report: $REPORT_RUN_URL (download *-test-report-md artifact)\" }] }] },"
+          else
+            REPORT_ITEM=""
+          fi
+
           curl --noproxy '*' -sf -X POST \
             -H "Authorization: Basic $AUTH" \
             -H "Content-Type: application/json" \
@@ -244,7 +311,9 @@ jobs:
                     \"content\": [
                       { \"type\": \"listItem\", \"content\": [{ \"type\": \"paragraph\", \"content\": [{ \"type\": \"text\", \"text\": \"Branch: $BRANCH\" }] }] },
                       { \"type\": \"listItem\", \"content\": [{ \"type\": \"paragraph\", \"content\": [{ \"type\": \"text\", \"text\": \"Commit: $SHORT_SHA\" }] }] },
-                      { \"type\": \"listItem\", \"content\": [{ \"type\": \"paragraph\", \"content\": [{ \"type\": \"text\", \"text\": \"Run: $RUN_URL\" }] }] }
+                      { \"type\": \"listItem\", \"content\": [{ \"type\": \"paragraph\", \"content\": [{ \"type\": \"text\", \"text\": \"CI Run: $RUN_URL\" }] }] },
+                      $REPORT_ITEM
+                      { \"type\": \"listItem\", \"content\": [{ \"type\": \"paragraph\", \"content\": [{ \"type\": \"text\", \"text\": \"Full report: download *-test-report-md artifact from the CI run above\" }] }] }
                     ]
                   }
                 ]
@@ -265,18 +334,18 @@ jobs:
           echo "has_counts:        ${{ steps.download.outputs.has_counts }}"
           echo "---"
           echo "Will post comment: ${{ steps.verify_jira.outputs.JIRA_EXISTS == 'true' }}"
-          echo "Will mark Done:    ${{ github.event.workflow_run.conclusion == 'success' && steps.download.outputs.failed == '0' }}"
-          echo "Will open PR:      ${{ github.event.workflow_run.conclusion == 'success' && steps.download.outputs.failed == '0' }}"
+          echo "Will mark Done:    CI=success AND failed=0 AND has_counts=true required"
+          echo "Will open PR:      CI=success AND failed=0 AND has_counts=true required"
           echo "::endgroup::"
 
       - name: Transition Jira to Done (on success)
-        # Transitions on workflow success, regardless of whether a JSON artifact was found.
-        # If CI passed the tests, we trust the conclusion and mark Done.
-        # has_counts is logged but not a gate — prevents silent Jira freeze when JSON upload fails.
+        # Requires BOTH: CI success AND a parsed test artifact confirming zero failures.
+        # has_counts must be 'true' — Jira will NOT be marked Done if results artifact is missing.
         if: >
           steps.verify_jira.outputs.JIRA_EXISTS == 'true' &&
-          github.event.workflow_run.conclusion == 'success' &&
-          steps.download.outputs.failed == '0'
+          steps.ctx.outputs.conclusion == 'success' &&
+          steps.download.outputs.failed == '0' &&
+          steps.download.outputs.has_counts == 'true'
         env:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
           ISSUE_KEY: ${{ steps.extract.outputs.ISSUE_KEY }}
@@ -296,37 +365,66 @@ jobs:
           if [[ "$HTTP" == "204" ]]; then
             echo "::notice::Jira ${ISSUE_KEY} → Done (HTTP 204)"
             echo "Jira $ISSUE_KEY transitioned to Done"
+          elif [[ "$HTTP" == "400" || "$HTTP" == "409" ]]; then
+            echo "::notice::Jira ${ISSUE_KEY} already in target state (HTTP $HTTP) — skipping transition"
+            echo "Jira $ISSUE_KEY already in Done or transition not applicable (HTTP $HTTP)"
           else
-            echo "::warning::Transition to Done returned HTTP $HTTP (issue may already be Done, or transition ID needs updating)"
-            echo "Transition to Done returned HTTP $HTTP (issue may already be Done, or transition ID needs updating)"
+            echo "::error::Jira Done transition failed — HTTP $HTTP. Check JIRA_DONE_TRANSITION_ID ('$JIRA_DONE_TRANSITION_ID') or Atlassian API permissions."
+            cat /tmp/jira_done.json 2>/dev/null || true
+            exit 1
           fi
 
       - name: Open PR into dev (on success)
-        # Opens PR on success even without JSON counts — CI conclusion is the source of truth.
+        # Requires BOTH: CI success AND a parsed test artifact confirming zero failures.
+        # has_counts must be 'true' — PR will NOT be created if results artifact is missing.
         if: >
-          github.event.workflow_run.conclusion == 'success' &&
-          steps.download.outputs.failed == '0'
+          steps.ctx.outputs.conclusion == 'success' &&
+          steps.download.outputs.failed == '0' &&
+          steps.download.outputs.has_counts == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BRANCH: ${{ steps.extract.outputs.BRANCH }}
           ISSUE_KEY: ${{ steps.extract.outputs.ISSUE_KEY }}
         run: |
-          # Check if a PR for this branch already exists
-          EXISTING=$(gh pr list --head "$BRANCH" --base dev --json number --jq '.[0].number' 2>/dev/null || echo "")
+          # Check if a PR for this branch already exists (handles race condition
+          # when both Cypress and Playwright post-results runs fire concurrently)
+          EXISTING=$(gh pr list --head "$BRANCH" --base dev --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
           if [[ -n "$EXISTING" ]]; then
-            echo "PR #$EXISTING already exists for $BRANCH -> dev, skipping"
+            echo "::notice::PR #$EXISTING already exists for $BRANCH -> dev, skipping"
             exit 0
           fi
 
-          printf '## Automated test PR\n\nThis PR was created automatically after all CI tests passed on branch `%s`.\n\n**Jira story:** [%s](%s/browse/%s)\n\n### Checklist\n- [x] All CI jobs passed\n- [x] Jira transitioned to Done\n- [ ] Peer review\n- [ ] Merge to dev\n' \
-            "$BRANCH" "$ISSUE_KEY" "$ATLASSIAN_BASE_URL" "$ISSUE_KEY" > /tmp/pr_body.md
+          # Look up the open automation task issue number for this Jira key so
+          # merging the PR will auto-close it via the "Closes #N" keyword.
+          TASK_ISSUE=$(gh issue list --state open --label "automated-qa" --json number,title \
+            --jq ".[] | select(.title | test(\"$ISSUE_KEY\")) | .number" 2>/dev/null | head -1 || echo "")
+          if [[ -n "$TASK_ISSUE" ]]; then
+            CLOSES_LINE=$'\n'"Closes #${TASK_ISSUE}"
+          else
+            CLOSES_LINE=""
+          fi
 
-          gh pr create \
+          printf '## Automated test PR\n\nThis PR was created automatically after all CI tests passed on branch `%s`.\n\n**Jira story:** [%s](%s/browse/%s)\n%s\n\n### Checklist\n- [x] All CI jobs passed\n- [x] Jira transitioned to Done\n- [ ] Peer review\n- [ ] Merge to dev\n' \
+            "$BRANCH" "$ISSUE_KEY" "$ATLASSIAN_BASE_URL" "$ISSUE_KEY" "$CLOSES_LINE" > /tmp/pr_body.md
+
+          # Use || to gracefully handle concurrent creation (race condition between
+          # Cypress and Playwright post-results runs firing at the same time)
+          if gh pr create \
             --base dev \
             --head "$BRANCH" \
             --title "[$ISSUE_KEY] Automated tests - ready to merge" \
             --body-file /tmp/pr_body.md \
-            --label "automated-qa"
-          echo "::notice::PR created: ${BRANCH} → dev"
-          echo "PR created: $BRANCH -> dev"
+            --label "automated-qa" 2>/tmp/pr_create_err; then
+            echo "::notice::PR created: ${BRANCH} → dev"
+            echo "PR created: $BRANCH -> dev"
+          else
+            # Either PR was created by concurrent run, or a real error occurred
+            CONCURRENT=$(gh pr list --head "$BRANCH" --base dev --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+            if [[ -n "$CONCURRENT" ]]; then
+              echo "::notice::PR #$CONCURRENT was created by a concurrent run — skipping"
+            else
+              echo "::error::Failed to create PR: $(cat /tmp/pr_create_err)"
+              exit 1
+            fi
+          fi
 

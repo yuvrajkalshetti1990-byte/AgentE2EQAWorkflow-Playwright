@@ -38,6 +38,10 @@ env:
   ATLASSIAN_CLOUD_ID: c2269322-6897-4ede-8e92-04b6edd6edf6
   ATLASSIAN_BASE_URL: https://yuvrajkalshetti1990.atlassian.net
   ATLASSIAN_EMAIL: yuvrajkalshetti1990@gmail.com
+  # AC_GATE_STRICT: set to 'true' as a GitHub repository variable (Settings > Variables > Actions)
+  # to fail the pipeline when OpenAI is unavailable (prevents REWRITE-level ACs slipping through).
+  # Default: 'false' so repositories without the variable set are unaffected.
+  AC_GATE_STRICT: 'false'
 
 jobs:
   generate-tests:
@@ -74,6 +78,29 @@ jobs:
           echo "::endgroup::"
           if [[ -z "$ISSUE_KEY" ]]; then
             echo "::error::ISSUE_KEY is empty - pipeline will fail. Check Jira webhook payload or workflow_dispatch input."
+          fi
+
+      - name: Load pipeline state (re-run idempotency)
+        id: pipeline_state
+        run: |
+          STATE_KEY=$(echo "$ISSUE_KEY" | tr '[:upper:]' '[:lower:]')
+          BRANCH="auto/test-${STATE_KEY}"
+          STATE_FILE="qa-framework/state/${STATE_KEY}.state.json"
+
+          # Fetch the feature branch if it already exists to check for cached state
+          git fetch origin "$BRANCH" 2>/dev/null || true
+
+          if git show "origin/${BRANCH}:${STATE_FILE}" > /tmp/pipeline.state.json 2>/dev/null; then
+            CACHED_VERDICT=$(node -e \
+              "try{const s=require('/tmp/pipeline.state.json');console.log(s.acVerdict||'');}catch(e){console.log('')}" \
+              2>/dev/null || echo "")
+            echo "CACHED_AC_VERDICT=${CACHED_VERDICT}" >> "$GITHUB_OUTPUT"
+            echo "STATE_LOADED=true"                   >> "$GITHUB_OUTPUT"
+            echo "::notice::Pipeline state loaded for $ISSUE_KEY (acVerdict=${CACHED_VERDICT:-pending})"
+          else
+            echo "CACHED_AC_VERDICT=" >> "$GITHUB_OUTPUT"
+            echo "STATE_LOADED=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No existing pipeline state for $ISSUE_KEY — fresh run"
           fi
 
       - name: Fetch Jira story details
@@ -122,10 +149,18 @@ jobs:
             FRAMEWORK="cypress"
           elif [[ "$MANUAL_FW" == "playwright" ]]; then
             FRAMEWORK="playwright"
-          elif echo "$LABELS" | grep -qi "cypress"; then
-            FRAMEWORK="cypress"
           else
-            FRAMEWORK="playwright"
+            # Auto-detect from Jira labels — fail loudly on ambiguous dual-label
+            HAS_CYPRESS=$(echo "$LABELS"    | grep -qi "cypress"    && echo "true" || echo "false")
+            HAS_PLAYWRIGHT=$(echo "$LABELS" | grep -qi "playwright" && echo "true" || echo "false")
+            if [[ "$HAS_CYPRESS" == "true" && "$HAS_PLAYWRIGHT" == "true" ]]; then
+              echo "::error::FRAMEWORK_AMBIGUOUS: ${ISSUE_KEY} has both 'cypress' and 'playwright' labels. Remove one label or use the 'framework' workflow_dispatch input to override."
+              exit 1
+            elif [[ "$HAS_CYPRESS" == "true" ]]; then
+              FRAMEWORK="cypress"
+            else
+              FRAMEWORK="playwright"
+            fi
           fi
 
           echo "ISSUE_SUMMARY=$SUMMARY" >> "$GITHUB_OUTPUT"
@@ -140,6 +175,18 @@ jobs:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
+          # Short-circuit: if AC verdict is already cached from a previous run, skip the OpenAI call
+          CACHED="${{ steps.pipeline_state.outputs.CACHED_AC_VERDICT }}"
+          if [[ -n "$CACHED" && "$CACHED" != "null" ]]; then
+            echo "::notice::AC verdict already cached ($CACHED) — skipping OpenAI review on re-run (saves API cost)"
+            echo "SCORE=cached"    >> "$GITHUB_OUTPUT"
+            echo "VERDICT=$CACHED" >> "$GITHUB_OUTPUT"
+            echo "SUMMARY=AC review loaded from cached pipeline state (verdict from initial run)." >> "$GITHUB_OUTPUT"
+            echo "ISSUES="         >> "$GITHUB_OUTPUT"
+            echo "SUGGESTIONS="    >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
 
@@ -291,6 +338,17 @@ jobs:
           echo "::endgroup::"
           echo "::notice::AC Review: score=${SCORE} verdict=${VERDICT}"
 
+      - name: "Strict gate: fail when OpenAI AC review was skipped"
+        # Runs only when SCORE is 'N/A' (set by all OpenAI fallback paths) AND strict mode is on.
+        # Set AC_GATE_STRICT=true as a repository variable (Settings > Variables) to enable.
+        # Default is false so existing pipelines are unaffected.
+        if: steps.ac_review.outputs.SCORE == 'N/A' && env.AC_GATE_STRICT == 'true'
+        run: |
+          echo "::error::AC_GATE_STRICT is enabled and the OpenAI AC review was skipped (API unavailable)."
+          echo "::error::Manual AC review is required before automation can proceed for ${ISSUE_KEY}."
+          echo "Re-trigger this pipeline once the OpenAI API is available, or set AC_GATE_STRICT=false to allow soft-fail."
+          exit 1
+
       - name: Post AC review comment to Jira
         env:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
@@ -370,6 +428,98 @@ jobs:
           echo "Story moved back to In Progress — ACs require rewrite before automation can proceed."
           exit 1
 
+      - name: Enrich ACs (Test Intelligence Layer)
+        id: intelligence
+        env:
+          ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
+          FRAMEWORK: ${{ steps.jira.outputs.FRAMEWORK }}
+        run: |
+          unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
+          AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
+
+          # Fetch description to extract raw ACs
+          HTTP_CODE=$(curl --noproxy '*' -s -o /tmp/jira_desc_intel.json -w "%{http_code}" \
+            -H "Authorization: Basic $AUTH" \
+            -H "Accept: application/json" \
+            "https://api.atlassian.com/ex/jira/$ATLASSIAN_CLOUD_ID/rest/api/3/issue/$ISSUE_KEY?fields=description")
+
+          if [[ "$HTTP_CODE" != "200" ]]; then
+            echo "::warning::Could not fetch Jira description for enrichment (HTTP $HTTP_CODE) — skipping intelligence layer"
+            echo "INTELLIGENCE_ACTION=skipped" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Extract plain text description
+          DESC=$(cat /tmp/jira_desc_intel.json \
+            | jq -r '
+                def extract_text: . as $node |
+                  if type == "array" then map(extract_text) | add // ""
+                  elif type == "object" then
+                    if .type == "text" then .text // ""
+                    else (.content // [] | map(extract_text) | add // "")
+                    end
+                  else ""
+                  end;
+                .fields.description | extract_text')
+
+          if [[ -z "$DESC" || "$DESC" == "null" ]]; then
+            echo "::warning::No description found — skipping AC enrichment"
+            echo "INTELLIGENCE_ACTION=skipped" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Split description into individual AC lines (lines starting with AC or numbered)
+          # Write to a JSON array file for enrich-ac.js --acs-file
+          echo "$DESC" | \
+            grep -E '^\s*(AC[-: ]?\s*\d+|[0-9]+\.)' | \
+            sed 's/^\s*//' | \
+            jq -Rsc '[split("\n")[] | select(length > 0)]' \
+            > /tmp/acs.json
+
+          AC_COUNT=$(jq 'length' /tmp/acs.json)
+          echo "ACs extracted for enrichment: $AC_COUNT"
+
+          if [[ "$AC_COUNT" -eq 0 ]]; then
+            # Fallback: treat whole description as one AC
+            echo "[\"$DESC\"]" | jq . > /tmp/acs.json
+            AC_COUNT=1
+          fi
+
+          mkdir -p qa-framework/intelligence
+
+          # Run enrichment — exit 2 = REWRITE verdict (should not reach here — blocked above)
+          set +e
+          node scripts/enrich-ac.js \
+            --story-key  "$ISSUE_KEY" \
+            --acs-file   /tmp/acs.json \
+            --framework  "$FRAMEWORK"
+          ENRICH_EXIT=$?
+          set -e
+
+          INTEL_FILE="qa-framework/intelligence/${ISSUE_KEY}-enhanced-ac.json"
+          if [[ -f "$INTEL_FILE" ]]; then
+            PIPELINE_ACTION=$(jq -r '.pipelineAction' "$INTEL_FILE")
+            AUTOMATABLE=$(jq '[.enriched[] | select(.automatable == true)] | length' "$INTEL_FILE")
+            TOTAL=$(jq '.enriched | length' "$INTEL_FILE")
+            echo "::group::AC Intelligence Summary"
+            echo "Pipeline action:  $PIPELINE_ACTION"
+            echo "Automatable ACs:  $AUTOMATABLE / $TOTAL"
+            jq -r '.enriched[] | "  AC-\(.acNumber) [\(.verdict)] automatable=\(.automatable)\(if .nonAutomatableReason then " → NOT AUTOMATABLE: " + .nonAutomatableReason else "" end)"' "$INTEL_FILE"
+            echo "::endgroup::"
+            echo "INTELLIGENCE_ACTION=$PIPELINE_ACTION" >> "$GITHUB_OUTPUT"
+            echo "AUTOMATABLE_COUNT=$AUTOMATABLE"       >> "$GITHUB_OUTPUT"
+            echo "TOTAL_AC_COUNT=$TOTAL"                >> "$GITHUB_OUTPUT"
+            echo "::notice::Intelligence layer: $PIPELINE_ACTION ($AUTOMATABLE/$TOTAL ACs automatable)"
+          else
+            echo "::warning::Intelligence output not found — proceeding without enrichment"
+            echo "INTELLIGENCE_ACTION=skipped" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [[ $ENRICH_EXIT -eq 2 ]]; then
+            echo "::error::One or more ACs have REWRITE verdict — pipeline should have been blocked above"
+            exit 1
+          fi
+
       - name: Create feature branch
         id: branch
         run: |
@@ -425,8 +575,17 @@ jobs:
             exit 0
           fi
 
-          # --- Shared instruction block (AC traceability requirement) ---
+          # --- Shared instruction block (AC traceability + intelligence layer) ---
           # Built with printf to avoid heredoc YAML parsing issues
+          INTEL_FILE="qa-framework/intelligence/${ISSUE_KEY}-enhanced-ac.json"
+          INTEL_NOTE=""
+          if [[ -f "$INTEL_FILE" ]]; then
+            AUTOMATABLE="${{ steps.intelligence.outputs.AUTOMATABLE_COUNT }}"
+            TOTAL="${{ steps.intelligence.outputs.TOTAL_AC_COUNT }}"
+            INTEL_NOTE=$(printf '\n### Test Intelligence Layer\nEnhanced AC document available at `%s`\n- Automatable ACs: %s / %s\n- Use `enriched[n].assertionHints` for assertion snippets\n- Use `enriched[n].edgeCases` for additional test scenarios\n- ACs with `automatable=false` must be moved to notimplemented/' \
+              "$INTEL_FILE" "$AUTOMATABLE" "$TOTAL")
+          fi
+
           AC_TRACEABILITY=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
             '' \
             '### AC Traceability Requirements (MANDATORY)' \
@@ -439,18 +598,20 @@ jobs:
             '    document the reason and missing pieces — do NOT silently skip')
 
           if [[ "$FRAMEWORK" == "cypress" ]]; then
-            printf '## Automation Task\n\n**Jira Story:** [%s](%s/browse/%s)\n**Branch:** `%s`\n**Framework:** Cypress\n\n## Agent Instructions\n\nGenerate Cypress TypeScript E2E tests for ALL acceptance criteria in the Jira story.\n\n### File Conventions\n- Place files under `qa-framework/frameworks/cypress/tests/%s/`\n- Config: `qa-framework/frameworks/cypress/cypress.config.ts`\n- Naming: `{app-prefix}-cy-{area}-{seq:02d}-{kebab-description}.cy.ts`\n- One `it()` per acceptance criterion (1:1 AC → test mapping)\n- Selectors: prefer [data-cy], [data-testid], ARIA roles\n- Use `cy.session()` for login state caching\n- Use `cy.intercept()` for network stubbing/waiting\n%s\n\nCommit all test files to branch `%s`\n' \
+            printf '## Automation Task\n\n**Jira Story:** [%s](%s/browse/%s)\n**Branch:** `%s`\n**Framework:** Cypress\n\n## Agent Instructions\n\nGenerate Cypress TypeScript E2E tests for ALL acceptance criteria in the Jira story.\n\n### File Conventions\n- Place files under `qa-framework/frameworks/cypress/tests/%s/`\n- Config: `qa-framework/frameworks/cypress/cypress.config.ts`\n- Naming: `{app-prefix}-cy-{area}-{seq:02d}-{kebab-description}.cy.ts`\n- One `it()` per acceptance criterion (1:1 AC → test mapping)\n- Selectors: prefer [data-cy], [data-testid], ARIA roles\n- Use `cy.session()` for login state caching\n- Use `cy.intercept()` for network stubbing/waiting\n%s\n%s\n\nCommit all test files to branch `%s`\n' \
               "$ISSUE_KEY" "$ATLASSIAN_BASE_URL" "$ISSUE_KEY" "$BRANCH" \
               "$(echo "$ISSUE_KEY" | tr '[:upper:]' '[:lower:]')" \
               "$AC_TRACEABILITY" \
+              "$INTEL_NOTE" \
               "$BRANCH" \
               > /tmp/issue_body.md
             FRAMEWORK_LABEL="framework:cypress"
           else
-            printf '## Automation Task\n\n**Jira Story:** [%s](%s/browse/%s)\n**Branch:** `%s`\n**Framework:** Playwright\n\n## Agent Instructions\n\nGenerate Playwright TypeScript E2E tests for ALL acceptance criteria in the Jira story.\n\n### File Conventions\n- Place files under `qa-framework/frameworks/playwright/tests/%s/`\n- Config: `qa-framework/frameworks/playwright/playwright.config.ts`\n- Naming: `saucedemo-tc-{area}-{seq:02d}-{kebab-description}.spec.ts`\n- One `test()` per acceptance criterion (1:1 AC → test mapping)\n- Selectors: prefer [data-test], ARIA roles, [name] attributes\n- Use timestamp suffixes for dynamic test data\n%s\n\nCommit all test files to branch `%s`\n' \
+            printf '## Automation Task\n\n**Jira Story:** [%s](%s/browse/%s)\n**Branch:** `%s`\n**Framework:** Playwright\n\n## Agent Instructions\n\nGenerate Playwright TypeScript E2E tests for ALL acceptance criteria in the Jira story.\n\n### File Conventions\n- Place files under `qa-framework/frameworks/playwright/tests/%s/`\n- Config: `qa-framework/frameworks/playwright/playwright.config.ts`\n- Naming: `saucedemo-tc-{area}-{seq:02d}-{kebab-description}.spec.ts`\n- One `test()` per acceptance criterion (1:1 AC → test mapping)\n- Selectors: prefer [data-test], ARIA roles, [name] attributes\n- Use timestamp suffixes for dynamic test data\n%s\n%s\n\nCommit all test files to branch `%s`\n' \
               "$ISSUE_KEY" "$ATLASSIAN_BASE_URL" "$ISSUE_KEY" "$BRANCH" \
               "$(echo "$ISSUE_KEY" | tr '[:upper:]' '[:lower:]')" \
               "$AC_TRACEABILITY" \
+              "$INTEL_NOTE" \
               "$BRANCH" \
               > /tmp/issue_body.md
             FRAMEWORK_LABEL="framework:playwright"
@@ -479,6 +640,63 @@ jobs:
         run: |
           gh issue edit ${{ steps.gh_issue.outputs.ISSUE_NUMBER }} \
             --add-assignee "Copilot" 2>/dev/null || true
+
+      - name: Persist pipeline state to feature branch
+        if: steps.branch.outputs.BRANCH != '' && steps.ac_review.outputs.VERDICT != 'REWRITE'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="${{ steps.branch.outputs.BRANCH }}"
+          FRAMEWORK="${{ steps.jira.outputs.FRAMEWORK }}"
+
+          # Ensure we are on the feature branch (branch step already checked it out).
+          # No || true — a failed checkout must surface immediately to prevent committing state to the wrong branch.
+          git checkout "$BRANCH"
+
+          # Sync scripts/, tsconfigs, and shared page-object / support files from dev
+          # onto the feature branch so that fixes committed to dev after branch creation
+          # (e.g. IframePage TS2322, commands.ts, cypress.config.ts changes) are always
+          # present before tsc --noEmit and test execution run in cypress.yml / playwright.yml.
+          git checkout origin/dev -- scripts/ 2>/dev/null || true
+          git checkout origin/dev -- qa-framework/frameworks/cypress/tsconfig.json 2>/dev/null || true
+          git checkout origin/dev -- qa-framework/frameworks/playwright/tsconfig.json 2>/dev/null || true
+          git checkout origin/dev -- qa-framework/frameworks/cypress/pages/ 2>/dev/null || true
+          git checkout origin/dev -- qa-framework/frameworks/playwright/pages/ 2>/dev/null || true
+          git checkout origin/dev -- qa-framework/frameworks/cypress/support/ 2>/dev/null || true
+          git checkout origin/dev -- qa-framework/frameworks/cypress/cypress.config.ts 2>/dev/null || true
+          git checkout origin/dev -- qa-framework/frameworks/playwright/playwright.config.ts 2>/dev/null || true
+          git checkout origin/dev -- config/ 2>/dev/null || true
+
+          # Write/update state file using the plain-JS CLI (no npm install needed)
+          node scripts/state.js init "$ISSUE_KEY" "$FRAMEWORK" "$BRANCH"
+          node scripts/state.js set  "$ISSUE_KEY" acVerdict "${{ steps.ac_review.outputs.VERDICT }}"
+
+          SCORE="${{ steps.ac_review.outputs.SCORE }}"
+          [[ -n "$SCORE" && "$SCORE" != "cached" ]] && \
+            node scripts/state.js set "$ISSUE_KEY" acScore "$SCORE"
+
+          ISSUE_NUM="${{ steps.gh_issue.outputs.ISSUE_NUMBER }}"
+          [[ -n "$ISSUE_NUM" ]] && \
+            node scripts/state.js set "$ISSUE_KEY" githubIssueNumber "$ISSUE_NUM"
+
+          node scripts/state.js set "$ISSUE_KEY" jiraStatus "in-qa"
+
+          echo "::group::Pipeline state contents"
+          node scripts/state.js get "$ISSUE_KEY"
+          echo "::endgroup::"
+
+          # Commit state + intelligence file so subsequent runs and generators can read them
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add qa-framework/state/
+          # Stage intelligence output if it was produced
+          INTEL_FILE="qa-framework/intelligence/${ISSUE_KEY}-enhanced-ac.json"
+          [[ -f "$INTEL_FILE" ]] && git add "$INTEL_FILE"
+          git diff --cached --quiet || {
+            git commit -m "chore(intelligence): persist pipeline state + enriched ACs for $ISSUE_KEY [skip ci]"
+            git push origin "$BRANCH"
+            echo "::notice::Pipeline state and AC intelligence committed to $BRANCH"
+          }
 
       - name: Transition Jira issue to In QA
         continue-on-error: true  # 400/409 means issue is already in that state — not an error
@@ -539,12 +757,16 @@ jobs:
             WORKFLOW_FILE="playwright.yml"
           fi
 
+          # Dispatch with ref=dev so GitHub reads the latest workflow file from dev.
+          # Pass inputs.ref=$BRANCH so the checkout inside cypress/playwright.yml still
+          # checks out the feature branch code. Without this, GitHub uses the workflow
+          # file from auto/test-* which may predate recent pipeline fixes.
           HTTP_CODE=$(curl -s -o /tmp/dispatch_response.json -w "%{http_code}" \
             -X POST \
             -H "Authorization: token $GH_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/${{ github.repository }}/actions/workflows/$WORKFLOW_FILE/dispatches" \
-            -d "{\"ref\":\"$BRANCH\",\"inputs\":{\"ref\":\"$BRANCH\"}}")
+            -d "{\"ref\":\"dev\",\"inputs\":{\"ref\":\"$BRANCH\"}}")
 
           echo "::group::CI Dispatch Response (HTTP $HTTP_CODE)"
           echo "Workflow: $WORKFLOW_FILE"

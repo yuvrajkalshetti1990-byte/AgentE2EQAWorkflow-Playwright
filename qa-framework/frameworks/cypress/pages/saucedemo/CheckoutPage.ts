@@ -11,7 +11,7 @@ export class CheckoutPage {
   private readonly taxLabel        = '.summary_tax_label';
 
   // Confirmation selectors
-  private readonly confirmationHeader = '.complete-header';
+  private readonly confirmationHeader = 'h2.complete-header';
 
   assertOnStepOne(): void {
     cy.url().should('include', '/checkout-step-one.html');

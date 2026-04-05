@@ -1,0 +1,257 @@
+name: QA Automation Pipeline
+
+# ════════════════════════════════════════════════════════════════════════════
+# STANDALONE PIPELINE PATH
+#
+# This workflow is an INDEPENDENT, self-contained pipeline that:
+#   1. Triggers from a GitHub Issue labeled "run-automation"
+#   2. Calls the LLM orchestrator (tools/orchestrator.js) which handles
+#      planning, generation, test execution, healing, reporting, Jira update,
+#      and PR creation — ALL IN ONE JOB.
+#
+# ⚠️  DO NOT USE this path simultaneously with the Jira-triggered pipeline
+#     (jira-ready-for-qa.yml → playwright.yml/cypress.yml → post-results-to-jira.yml).
+#     Running both for the same Jira story will produce duplicate comments,
+#     conflicting Jira transitions, and duplicate PRs.
+#
+# TRIGGER
+#   1. Automated: GitHub issue opened or labeled "run-automation"
+#   2. Manual:    workflow_dispatch from Actions tab
+# ════════════════════════════════════════════════════════════════════════════
+on:
+  issues:
+    types: [opened, labeled]
+
+  workflow_dispatch:
+    inputs:
+      issue_key:
+        description: 'Jira Issue Key (e.g. SCRUM-42)'
+        required: true
+        type: string
+      framework:
+        description: 'Framework override (auto = detect from Jira labels)'
+        required: false
+        type: choice
+        default: 'auto'
+        options: [auto, playwright, cypress]
+      base_branch:
+        description: 'PR target branch'
+        required: false
+        default: 'dev'
+        type: string
+
+# ════════════════════════════════════════════════════════════════════════════
+# SHARED ENV
+# ════════════════════════════════════════════════════════════════════════════
+env:
+  ATLASSIAN_CLOUD_ID:  c2269322-6897-4ede-8e92-04b6edd6edf6
+  ATLASSIAN_BASE_URL:  https://yuvrajkalshetti1990.atlassian.net
+  ATLASSIAN_EMAIL:     yuvrajkalshetti1990@gmail.com
+  NODE_VERSION:        lts/*
+
+# ════════════════════════════════════════════════════════════════════════════
+# CONCURRENCY GUARD
+# Prevents two qa-automation.yml runs from executing simultaneously for the
+# same issue, and prevents overlap with the Jira-triggered pipeline path.
+# cancel-in-progress: true ensures only the latest trigger wins, avoiding
+# stale runs that could produce duplicate Jira comments or conflicting PRs.
+# The orchestrator's dual-pipeline guard (branch existence check) provides the
+# second enforcement layer at runtime.
+# ════════════════════════════════════════════════════════════════════════════
+concurrency:
+  group: qa-${{ github.event.issue.number || inputs.issue_key }}
+  cancel-in-progress: true
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # GATE: only run when the issue is labeled "run-automation" (or dispatched)
+  # ──────────────────────────────────────────────────────────────────────────
+  check-trigger:
+    name: "Check trigger conditions"
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+      issue_key:  ${{ steps.check.outputs.issue_key }}
+
+    steps:
+      - name: Evaluate trigger
+        id: check
+        run: |
+          SHOULD_RUN="false"
+          ISSUE_KEY=""
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            SHOULD_RUN="true"
+            ISSUE_KEY="${{ inputs.issue_key }}"
+
+          elif [[ "${{ github.event_name }}" == "issues" ]]; then
+            # Only proceed when the label "run-automation" is added
+            LABEL="${{ github.event.label.name }}"
+            if [[ "$LABEL" == "run-automation" ]]; then
+              SHOULD_RUN="true"
+              # Extract Jira issue key from issue title or body
+              TITLE="${{ github.event.issue.title }}"
+              ISSUE_KEY=$(echo "$TITLE" | grep -oP '[A-Z]+-\d+' | head -1 || echo "")
+              if [[ -z "$ISSUE_KEY" ]]; then
+                echo "::warning::Could not extract Jira issue key from issue title: $TITLE"
+                SHOULD_RUN="false"
+              fi
+            fi
+          fi
+
+          echo "should_run=${SHOULD_RUN}" >> "$GITHUB_OUTPUT"
+          echo "issue_key=${ISSUE_KEY}"   >> "$GITHUB_OUTPUT"
+          echo "::notice::should_run=${SHOULD_RUN}  issue_key=${ISSUE_KEY}"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # MAIN: Run the full orchestrator pipeline
+  # ──────────────────────────────────────────────────────────────────────────
+  orchestrate:
+    name: "Orchestrate QA pipeline — ${{ needs.check-trigger.outputs.issue_key }}"
+    runs-on: ubuntu-latest
+    needs: check-trigger
+    if: needs.check-trigger.outputs.should_run == 'true'
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
+
+    env:
+      ISSUE_KEY:          ${{ needs.check-trigger.outputs.issue_key }}
+      FRAMEWORK_OVERRIDE: ${{ inputs.framework || 'auto' }}
+      BASE_BRANCH:        ${{ inputs.base_branch || 'dev' }}
+
+    steps:
+      # ── Checkout ─────────────────────────────────────────────────────────
+      - name: Checkout repository (dev branch)
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: dev
+          fetch-depth: 0
+
+      # ── Node.js setup ─────────────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # ── Install dependencies ──────────────────────────────────────────────
+      - name: Install npm dependencies
+        run: npm ci
+
+      # ── Install test runners ──────────────────────────────────────────────
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Install Cypress binary
+        run: npx cypress install
+
+      # ── Configure git ─────────────────────────────────────────────────────
+      - name: Configure git identity
+        run: |
+          git config --global user.email "qa-bot@github-actions"
+          git config --global user.name  "QA Automation Bot"
+
+      # ── Debug info ────────────────────────────────────────────────────────
+      - name: "DEBUG: Pipeline inputs"
+        run: |
+          echo "::group::Pipeline context"
+          echo "Event:         ${{ github.event_name }}"
+          echo "ISSUE_KEY:     $ISSUE_KEY"
+          echo "FRAMEWORK:     $FRAMEWORK_OVERRIDE"
+          echo "BASE_BRANCH:   $BASE_BRANCH"
+          echo "Runner:        ${{ runner.os }}"
+          echo "Run URL:       https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "::endgroup::"
+          if [[ -z "$ISSUE_KEY" ]]; then
+            echo "::error::ISSUE_KEY is empty — cannot proceed"
+            exit 1
+          fi
+
+      # ── Pre-flight: quality gate ──────────────────────────────────────────
+      - name: "Pre-flight: Quality gate"
+        run: node scripts/validate-test-quality.js
+
+      # ── Pre-flight: fixture validation ────────────────────────────────────
+      - name: "Pre-flight: Fixture validation"
+        run: node scripts/validate-fixtures.js
+
+      # ── Pre-flight: Playwright data validation ────────────────────────────
+      - name: "Pre-flight: Playwright data validation"
+        if: env.FRAMEWORK_OVERRIDE != 'cypress'
+        run: node scripts/validate-playwright-data.js
+
+      # ── Pre-flight: framework-specific compliance ─────────────────────────
+      - name: "Pre-flight: Playwright compliance check"
+        if: env.FRAMEWORK_OVERRIDE != 'cypress'
+        run: node scripts/validate-playwright-tests.js
+
+      - name: "Pre-flight: Cypress compliance check"
+        if: env.FRAMEWORK_OVERRIDE == 'cypress'
+        run: node scripts/validate-cypress-tests.js
+
+      # ── Run orchestrator ──────────────────────────────────────────────────
+      - name: Run QA Orchestrator
+        id: orchestrator
+        env:
+          ISSUE_KEY:            ${{ needs.check-trigger.outputs.issue_key }}
+          ATLASSIAN_TOKEN:      ${{ secrets.ATLASSIAN_TOKEN }}
+          ATLASSIAN_EMAIL:      ${{ env.ATLASSIAN_EMAIL }}
+          ATLASSIAN_CLOUD_ID:   ${{ env.ATLASSIAN_CLOUD_ID }}
+          GITHUB_TOKEN:         ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY:    ${{ github.repository }}
+          OPENAI_API_KEY:       ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL:         gpt-4o
+          FRAMEWORK_OVERRIDE:   ${{ inputs.framework || 'auto' }}
+          BASE_BRANCH:          ${{ inputs.base_branch || 'dev' }}
+          JIRA_IN_QA_TRANSITION: "41"
+          JIRA_DONE_TRANSITION:  "52"
+          CI:                   "true"
+        run: node tools/orchestrator.js
+
+      # ── Upload artifacts ──────────────────────────────────────────────────
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-report-${{ needs.check-trigger.outputs.issue_key }}
+          path: qa-framework/reports/
+          retention-days: 30
+
+      - name: Upload Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-html-report-${{ needs.check-trigger.outputs.issue_key }}
+          path: qa-framework/frameworks/playwright/playwright-report/
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Upload Cypress Mochawesome report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-report-${{ needs.check-trigger.outputs.issue_key }}
+          path: qa-framework/frameworks/cypress/results/
+          retention-days: 30
+          if-no-files-found: ignore
+
+      # ── Pipeline summary ──────────────────────────────────────────────────
+      - name: Write job summary
+        if: always()
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## QA Automation Pipeline — $ISSUE_KEY
+
+          | Field       | Value                                                        |
+          |-------------|--------------------------------------------------------------|
+          | Issue       | \`$ISSUE_KEY\`                                               |
+          | Framework   | \`$FRAMEWORK_OVERRIDE\`                                      |
+          | Branch      | \`auto/test-$(echo "$ISSUE_KEY" | tr '[:upper:]' '[:lower:]')\` |
+          | Run         | [View run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |
+          | Status      | ${{ steps.orchestrator.outcome }} |
+          EOF
