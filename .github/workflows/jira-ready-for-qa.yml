@@ -653,11 +653,19 @@ jobs:
           # No || true — a failed checkout must surface immediately to prevent committing state to the wrong branch.
           git checkout "$BRANCH"
 
-          # Sync scripts/ and tsconfigs from dev onto the feature branch in case the branch
-          # pre-dates recent fixes (prevents MODULE_NOT_FOUND and TS DOM type errors).
+          # Sync scripts/, tsconfigs, and shared page-object / support files from dev
+          # onto the feature branch so that fixes committed to dev after branch creation
+          # (e.g. IframePage TS2322, commands.ts, cypress.config.ts changes) are always
+          # present before tsc --noEmit and test execution run in cypress.yml / playwright.yml.
           git checkout origin/dev -- scripts/ 2>/dev/null || true
           git checkout origin/dev -- qa-framework/frameworks/cypress/tsconfig.json 2>/dev/null || true
           git checkout origin/dev -- qa-framework/frameworks/playwright/tsconfig.json 2>/dev/null || true
+          git checkout origin/dev -- qa-framework/frameworks/cypress/pages/ 2>/dev/null || true
+          git checkout origin/dev -- qa-framework/frameworks/playwright/pages/ 2>/dev/null || true
+          git checkout origin/dev -- qa-framework/frameworks/cypress/support/ 2>/dev/null || true
+          git checkout origin/dev -- qa-framework/frameworks/cypress/cypress.config.ts 2>/dev/null || true
+          git checkout origin/dev -- qa-framework/frameworks/playwright/playwright.config.ts 2>/dev/null || true
+          git checkout origin/dev -- config/ 2>/dev/null || true
 
           # Write/update state file using the plain-JS CLI (no npm install needed)
           node scripts/state.js init "$ISSUE_KEY" "$FRAMEWORK" "$BRANCH"
