@@ -25,14 +25,14 @@ test.describe('Happy Path – Full Checkout Flow', () => {
     // 2. Add Sauce Labs Backpack to cart
     await inventoryPage.addToCart('add-to-cart-sauce-labs-backpack');
     await inventoryPage.assertCartBadge('1');
-    await expect(page.locator('[data-test="remove-sauce-labs-backpack"]')).toBeVisible();
+    await inventoryPage.assertItemAdded('sauce-labs-backpack');
 
     // 3. Navigate to cart and verify
     await inventoryPage.goToCart();
     await cartPage.assertPageLoaded();
     await cartPage.assertItem(0, 'Sauce Labs Backpack', '$29.99');
-    await expect(page.locator('[data-test="continue-shopping"]')).toBeVisible();
-    await expect(page.locator('[data-test="checkout"]')).toBeVisible();
+    await expect(page.locator(cartPage.continueShoppingButton)).toBeVisible();
+    await expect(page.locator(cartPage.checkoutButton)).toBeVisible();
 
     // 4. Click Checkout
     await cartPage.clickCheckout();
@@ -43,15 +43,10 @@ test.describe('Happy Path – Full Checkout Flow', () => {
 
     // 6. Verify overview page details
     console.log('[ASSERT] Verifying overview page details');
-    await expect(page.locator('.inventory_item_name')).toHaveText('Sauce Labs Backpack');
-    await expect(page.locator('.inventory_item_price')).toHaveText('$29.99');
-    await expect(page.locator('.summary_info')).toContainText('SauceCard #31337');
-    await expect(page.locator('.summary_info')).toContainText('Free Pony Express Delivery!');
-    await expect(page.locator('.summary_subtotal_label')).toContainText('Item total: $29.99');
-    await expect(page.locator('.summary_tax_label')).toContainText('Tax: $2.40');
-    await expect(page.locator('.summary_total_label')).toContainText('Total: $32.39');
-    await expect(page.locator('[data-test="cancel"]')).toBeVisible();
-    await expect(page.locator('[data-test="finish"]')).toBeVisible();
+    await checkoutPage.assertOverviewItem(0, 'Sauce Labs Backpack', '$29.99');
+    await checkoutPage.assertOverviewPaymentShipping('SauceCard #31337', 'Free Pony Express Delivery!');
+    await checkoutPage.assertOverviewSummary('Item total: $29.99', 'Tax: $2.40', 'Total: $32.39');
+    await checkoutPage.assertCancelFinishVisible();
 
     // 7. Finish order and verify confirmation via CheckoutPage POM
     await checkoutPage.clickFinish();
@@ -62,7 +57,7 @@ test.describe('Happy Path – Full Checkout Flow', () => {
     console.log('[NAV] url=%s', page.url());
     await expect(page).toHaveURL(/inventory\.html/);
     console.log('[ASSERT] Verifying cart badge is absent after order completion');
-    await expect(page.locator('.shopping_cart_badge')).not.toBeVisible();
+    await inventoryPage.assertCartBadgeAbsent();
     console.log('[NAV] Final url: %s', page.url());
   });
 });

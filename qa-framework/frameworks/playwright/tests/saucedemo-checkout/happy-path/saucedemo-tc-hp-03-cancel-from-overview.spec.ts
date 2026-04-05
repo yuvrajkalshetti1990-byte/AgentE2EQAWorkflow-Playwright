@@ -44,7 +44,7 @@ test.describe('Happy Path – Full Checkout Flow', () => {
 
     // 7. Verify the Onesie is still in the cart by checking its Remove button is shown
     console.log('[ASSERT] Verifying cart still contains item after cancel (cart not cleared)');
-    await expect(page.locator('[data-test="remove-sauce-labs-onesie"]')).toBeVisible();
+    await inventoryPage.assertItemAdded('sauce-labs-onesie');
     console.log('[NAV] Final url: %s', page.url());
   });
 });

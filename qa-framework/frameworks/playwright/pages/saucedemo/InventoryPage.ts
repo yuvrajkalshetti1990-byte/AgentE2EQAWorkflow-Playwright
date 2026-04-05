@@ -30,6 +30,20 @@ export class InventoryPage {
     await expect(this.page.locator(this.cartBadge)).toHaveText(count);
   }
 
+  async assertCartBadgeAbsent(): Promise<void> {
+    console.log('[ASSERT] Expected cart badge to be absent');
+    await expect(this.page.locator(this.cartBadge)).not.toBeVisible();
+  }
+
+  /**
+   * Assert that the remove button is visible for a given item after add-to-cart.
+   * @param itemSlug  e.g. 'sauce-labs-backpack' (the part after "remove-")
+   */
+  async assertItemAdded(itemSlug: string): Promise<void> {
+    console.log('[ASSERT] Verifying remove button is visible for: %s', itemSlug);
+    await expect(this.page.locator(`[data-test="remove-${itemSlug}"]`)).toBeVisible();
+  }
+
   /** Navigate to the cart page via direct URL (relative, uses baseURL). */
   async goToCart(): Promise<void> {
     console.log('[NAV] Navigating to cart page');
