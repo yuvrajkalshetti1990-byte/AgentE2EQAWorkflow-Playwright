@@ -1,0 +1,64 @@
+name: Close Task Issue on PR Merge
+
+# Fires when any PR targeting dev is merged.
+# Scoped to auto/test-* branches — ignores all other PRs.
+# Closes the GitHub automation-task issue that was created by jira-ready-for-qa.yml
+# for the same Jira story (identified by issue key in the branch name).
+#
+# This is intentionally a standalone workflow so no existing pipeline logic is changed.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [dev]
+
+jobs:
+  close-task-issue:
+    name: Close automation task issue
+    # Only run when the PR was actually merged (not just closed/abandoned)
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'auto/test-')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - name: Extract Jira issue key from branch name
+        id: extract
+        run: |
+          BRANCH="${{ github.event.pull_request.head.ref }}"
+          # Branch format: auto/test-scrum-18  →  SCRUM-18
+          ISSUE_KEY=$(echo "$BRANCH" | sed 's|auto/test-||' | tr '[:lower:]' '[:upper:]')
+          echo "ISSUE_KEY=$ISSUE_KEY" >> "$GITHUB_OUTPUT"
+          echo "::notice::Branch=$BRANCH  IssueKey=$ISSUE_KEY"
+
+      - name: Find and close the open automation task GitHub issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_KEY: ${{ steps.extract.outputs.ISSUE_KEY }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          # Find the open automation-task issue for this Jira key.
+          # --search uses GitHub's search API (not subject to indexing lag).
+          TASK_ISSUE=$(gh issue list \
+            --repo "${{ github.repository }}" \
+            --state open \
+            --label "automated-qa" \
+            --search "$ISSUE_KEY in:title" \
+            --json number,title \
+            --jq ".[] | select(.title | test(\"$ISSUE_KEY\")) | .number" \
+            2>/dev/null | head -1 || echo "")
+
+          if [[ -z "$TASK_ISSUE" ]]; then
+            echo "No open automation task issue found for $ISSUE_KEY — already closed or was never created."
+            exit 0
+          fi
+
+          echo "Found issue #$TASK_ISSUE for $ISSUE_KEY — closing after PR #$PR_NUMBER merged."
+
+          gh issue close "$TASK_ISSUE" \
+            --repo "${{ github.repository }}" \
+            --comment "Closed automatically — PR #${PR_NUMBER} merged into dev. Jira story: ${ISSUE_KEY}." \
+            2>/dev/null
+
+          echo "::notice::Closed GitHub issue #${TASK_ISSUE} after PR #${PR_NUMBER} merged (${ISSUE_KEY})"
