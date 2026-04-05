@@ -21,7 +21,9 @@ A **zero-human-intervention** QA automation pipeline: Jira "Ready for QA" → AC
 │  Step 3  │ Detect framework: "cypress" label → Cypress, else → Playwright  │
 │  Step 4  │ Review ACs via OpenAI gpt-4o-mini (score 1-5, per-dimension)    │
 │  Step 5  │ Post AC review comment to Jira (Activity tab)                   │
-│  Step 6  │ Score < 3.0 → REWRITE → move Jira back to "In Progress" → STOP │
+│  Step 6  │ REWRITE or IMPROVE → OpenAI generates improved ACs → posted    │
+│          │   to Jira comment → story moved back to "In Progress" → STOP    │
+│          │ AUTOMATE only → pipeline continues to test generation            │
 │  Step 7  │ Enrich ACs (Test Intelligence Layer) →                          │
 │          │   builds assertionHints, edgeCases, suggestedTitles             │
 │          │   writes qa-framework/intelligence/{key}-enhanced-ac.json       │
@@ -309,7 +311,7 @@ Currently checks **41 conditions (C01–C41)**. Exits 1 if any fail.
 > C31 verifies `scripts/validate-playwright-data.js` exists and has blocking exit(1).  
 > C32 verifies it runs before `npx playwright test` in `playwright.yml`.  
 > C33 verifies `jira-ready-for-qa.yml` transitions to In QA (id=41).  
-> C34 verifies REWRITE verdict triggers exit 1.  
+> C34 verifies REWRITE or IMPROVE verdict triggers exit 1 and moves story back to In Progress.  
 > C35 verifies `post-results-to-jira.yml` requires `has_counts==true` AND `failed==0` before Done.  
 > C36 verifies both the Done transition AND the PR creation step are guarded by those conditions.  
 > C37 verifies quality gate runs both pre-flight AND post-generation in the orchestrator.  
@@ -486,9 +488,9 @@ Example: `saucedemo-cy-hp-01-single-item-checkout.cy.ts`
 
 | Failure | Behaviour |
 |---------|-----------|
-| OpenAI unreachable | Defaults to `IMPROVE` verdict — pipeline continues |
-| OpenAI returns non-JSON | Defaults to `IMPROVE` verdict — pipeline continues |
-| AC score < 3.0 (REWRITE) | Pipeline blocked, Jira moved back to "In Progress" |
+| OpenAI unreachable | Defaults to `IMPROVE` verdict — pipeline **blocked**, Jira moved back to "In Progress" |
+| OpenAI returns non-JSON | Defaults to `IMPROVE` verdict — pipeline **blocked**, Jira moved back to "In Progress" |
+| AC verdict REWRITE or IMPROVE | Pipeline blocked, improved ACs generated and posted to Jira comment, story moved back to "In Progress" |
 | AC enrichment fails | Warning logged, pipeline continues without intelligence file |
 | Jira transition fails (already in state) | HTTP 400/409 logged, pipeline continues |
 | GitHub issue already exists | Existing issue reused — no duplicate created |
