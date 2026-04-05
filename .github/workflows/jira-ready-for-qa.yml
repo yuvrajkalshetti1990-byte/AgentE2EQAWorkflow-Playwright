@@ -804,7 +804,7 @@ jobs:
           git add qa-framework/state/
           # Stage intelligence output if it was produced
           INTEL_FILE="qa-framework/intelligence/${ISSUE_KEY}-enhanced-ac.json"
-          [[ -f "$INTEL_FILE" ]] && git add "$INTEL_FILE"
+          [[ -f "$INTEL_FILE" ]] && git add -f "$INTEL_FILE"
           git diff --cached --quiet || {
             git commit -m "chore(intelligence): persist pipeline state + enriched ACs for $ISSUE_KEY [skip ci]"
             git push origin "$BRANCH"
