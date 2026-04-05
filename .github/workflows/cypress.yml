@@ -16,6 +16,14 @@ on:
         required: false
         default: 'dev'
 
+env:
+  # Governance defaults — override by setting these as GitHub repository variables (Settings → Variables → Actions)
+  BASE_URL: ''
+  REQUIRE_BASE_URL: 'true'
+  EXPECTED_HOST: ''
+  STRICT_MODE: 'true'
+  ALLOW_PARTIAL_AC: 'false'
+
 jobs:
   test-cypress:
     name: Cypress E2E Tests
@@ -110,17 +118,9 @@ jobs:
 
     - name: "Pre-flight: Environment validation"
       run: node scripts/preflight-env.js --framework cypress
-      env:
-        BASE_URL: ${{ vars.BASE_URL || '' }}
-        REQUIRE_BASE_URL: ${{ vars.REQUIRE_BASE_URL || 'true' }}
-        EXPECTED_HOST: ${{ vars.EXPECTED_HOST || '' }}
-        STRICT_MODE: ${{ vars.STRICT_MODE || 'true' }}
 
     - name: "Pre-flight: AC coverage check"
       run: node scripts/validate-ac-coverage.js
-      env:
-        ALLOW_PARTIAL_AC: ${{ vars.ALLOW_PARTIAL_AC || 'false' }}
-        STRICT_MODE: ${{ vars.STRICT_MODE || 'true' }}
 
     - name: "Pre-flight: Cypress test compliance check"
       run: node scripts/validate-cypress-tests.js

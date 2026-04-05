@@ -15,6 +15,16 @@ on:
         description: 'Branch or SHA to test against'
         required: false
         default: 'dev'
+env:
+  # Governance defaults — override by setting these as GitHub repository variables (Settings → Variables → Actions)
+  BASE_URL: ''
+  REQUIRE_BASE_URL: 'true'
+  EXPECTED_HOST: ''
+  STRICT_MODE: 'true'
+  ALLOW_PARTIAL_AC: 'false'
+  FLAKY_FAIL_THRESHOLD: '0'
+  ALLOW_FLAKY: 'false'
+
 jobs:
   test-saucedemo:
     name: SauceDemo E2E Tests
@@ -41,17 +51,9 @@ jobs:
 
     - name: "Pre-flight: Environment validation"
       run: node scripts/preflight-env.js --framework playwright
-      env:
-        BASE_URL: ${{ vars.BASE_URL || '' }}
-        REQUIRE_BASE_URL: ${{ vars.REQUIRE_BASE_URL || 'true' }}
-        EXPECTED_HOST: ${{ vars.EXPECTED_HOST || '' }}
-        STRICT_MODE: ${{ vars.STRICT_MODE || 'true' }}
 
     - name: "Pre-flight: AC coverage check"
       run: node scripts/validate-ac-coverage.js
-      env:
-        ALLOW_PARTIAL_AC: ${{ vars.ALLOW_PARTIAL_AC || 'false' }}
-        STRICT_MODE: ${{ vars.STRICT_MODE || 'true' }}
 
     - name: "Pre-flight: Playwright test compliance check"
       run: node scripts/validate-playwright-tests.js
@@ -114,10 +116,7 @@ jobs:
           echo "::error::Flaky check skipped — results.json not found. Tests did not produce output."
           exit 1
         fi
-      env:
-        FLAKY_FAIL_THRESHOLD: ${{ vars.FLAKY_FAIL_THRESHOLD || '0' }}
-        ALLOW_FLAKY: ${{ vars.ALLOW_FLAKY || 'false' }}
-        STRICT_MODE: ${{ vars.STRICT_MODE || 'true' }}
+
 
     - name: "Post-run: AC execution validation"
       if: always()
