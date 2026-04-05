@@ -1,11 +1,12 @@
 {
   "issueKey": "SCRUM-18",
   "framework": "cypress",
-  "branch": "dev",
-  "createdAt": "2026-04-05T00:00:00.000Z",
-  "updatedAt": "2026-04-05T00:00:00.000Z",
+  "branch": "auto/test-scrum-18",
+  "createdAt": "2026-04-04T17:53:21.868Z",
+  "updatedAt": "2026-04-05T11:25:57.615Z",
   "acVerdict": "AUTOMATE",
-  "acScore": 4.5,
+  "acScore": 4,
+  "githubIssueNumber": 24,
   "jiraStatus": "in-qa",
   "planGenerated": true,
   "testsGenerated": true,
@@ -24,3 +25,4 @@
     "qa-framework/frameworks/cypress/tests/SCRUM-18-positive-login/saucedemo-cy-auth-01-positive-login.cy.ts"
   ]
 }
+
