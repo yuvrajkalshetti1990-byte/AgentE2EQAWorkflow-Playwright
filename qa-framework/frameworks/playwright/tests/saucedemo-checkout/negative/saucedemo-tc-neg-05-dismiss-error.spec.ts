@@ -2,22 +2,19 @@
 // AC-9: Clicking the X button on a validation error dismisses the error message
 
 import { test, expect } from '@playwright/test';
+import { LoginPage }     from '../../../pages/saucedemo/LoginPage';
+import { InventoryPage } from '../../../pages/saucedemo/InventoryPage';
+import { CartPage }      from '../../../pages/saucedemo/CartPage';
 
 test.describe('Negative / Validation Scenarios', () => {
   test.beforeEach(async ({ page }) => {
-    const username = process.env.SAUCE_USERNAME ?? 'standard_user';
-    const password = process.env.SAUCE_PASSWORD ?? 'secret_sauce';
+    const inventoryPage = new InventoryPage(page);
+    const cartPage      = new CartPage(page);
     console.log('[STEP] Logging in and navigating to checkout info page');
-    await page.goto('https://www.saucedemo.com');
-    await page.locator('[data-test="username"]').fill(username);
-    await page.locator('[data-test="password"]').fill(password);
-    await page.locator('[data-test="login-button"]').click();
-    await expect(page).toHaveURL(/inventory\.html/);
-    await page.locator('[data-test="add-to-cart-sauce-labs-backpack"]').click();
-    await page.goto('https://www.saucedemo.com/cart.html');
-    await page.locator('[data-test="checkout"]').click();
-    console.log('[NAV] url=%s', page.url());
-    await expect(page).toHaveURL(/checkout-step-one\.html/);
+    await new LoginPage(page).loginWithDefaults();
+    await inventoryPage.addToCart('add-to-cart-sauce-labs-backpack');
+    await inventoryPage.goToCart();
+    await cartPage.clickCheckout();
   });
 
   // AC-9: Clicking the X button on a validation error dismisses the error message

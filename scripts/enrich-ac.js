@@ -3,7 +3,6 @@
  * enrich-ac.js — Test Intelligence Layer CLI
  *
  * Self-contained CJS script (no TypeScript compilation needed).
- * Mirrors the logic in qa-framework/common/agents-core/ac-enricher.ts.
  *
  * Usage:
  *   node scripts/enrich-ac.js \
@@ -81,7 +80,7 @@ if (rawAcs.length === 0) {
 }
 
 // ---------------------------------------------------------------------------
-// Score thresholds (mirrors ac-scorer.ts)
+// Score thresholds
 // ---------------------------------------------------------------------------
 
 function verdictFromScore(score) {

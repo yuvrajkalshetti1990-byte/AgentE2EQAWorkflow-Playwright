@@ -101,6 +101,13 @@ function checkPlaywrightFile(filePath) {
   const src      = fs.readFileSync(filePath, 'utf8');
   const filename = path.basename(filePath);
 
+  // Rule 0: Empty / stub file — must contain at least one test() block              (R7)
+  if (!/\btest\s*\(/.test(src)) {
+    addViolation(filePath, 'EMPTY_FILE',
+      'No test() blocks found. This file is empty or a stub. ' +
+      'Add at least one test() block or move the file to notimplemented/.');
+  }
+
   // Rule 1: AC traceability
   if (!JIRA_HEADER_RE.test(src)) {
     addViolation(filePath, 'MISSING_AC_TRACEABILITY',
@@ -160,6 +167,13 @@ function checkPlaywrightFile(filePath) {
 function checkCypressFile(filePath) {
   const src      = fs.readFileSync(filePath, 'utf8');
   const filename = path.basename(filePath);
+
+  // Rule 0: Empty / stub file — must contain at least one it() block               (R7)
+  if (!/\bit\s*\(/.test(src)) {
+    addViolation(filePath, 'EMPTY_FILE',
+      'No it() blocks found. This file is empty or a stub. ' +
+      'Add at least one it() block or move the file to notimplemented/.');
+  }
 
   // Rule 1: AC traceability
   if (!JIRA_HEADER_RE.test(src)) {

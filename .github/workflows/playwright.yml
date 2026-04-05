@@ -30,7 +30,7 @@ jobs:
     - name: Install dependencies
       run: npm ci
     - name: Install Playwright Browsers
-      run: npx playwright install --with-deps
+      run: npx playwright install chromium --with-deps
 
     - name: "Pre-flight: TypeScript compilation check"
       run: |
@@ -38,6 +38,18 @@ jobs:
         npx tsc --noEmit -p qa-framework/frameworks/playwright/tsconfig.json
         echo "::endgroup::"
         echo "::notice::TypeScript compilation: OK"
+
+    - name: "Pre-flight: Environment validation"
+      run: node scripts/preflight-env.js --framework playwright
+      env:
+        BASE_URL: ${{ vars.BASE_URL || '' }}
+        REQUIRE_BASE_URL: ${{ vars.REQUIRE_BASE_URL || 'false' }}
+        EXPECTED_HOST: ${{ vars.EXPECTED_HOST || '' }}
+
+    - name: "Pre-flight: AC coverage check"
+      run: node scripts/validate-ac-coverage.js
+      env:
+        AC_GATE_MODE: ${{ vars.AC_GATE_MODE || 'warn' }}
 
     - name: "Pre-flight: Playwright test compliance check"
       run: node scripts/validate-playwright-tests.js
@@ -87,6 +99,21 @@ jobs:
           ls -la qa-framework/frameworks/playwright/test-results/ 2>/dev/null || echo "(directory missing)"
         fi
         echo "::endgroup::"
+
+    - name: "Post-run: Flaky test governance"
+      if: always()
+      run: |
+        RESULTS_FILE="qa-framework/frameworks/playwright/test-results/results.json"
+        if [[ -f "$RESULTS_FILE" ]]; then
+          node scripts/check-flaky-threshold.js \
+            --results-json "$RESULTS_FILE" \
+            --framework playwright
+        else
+          echo "::warning::Skipping flaky check — results.json not found"
+        fi
+      env:
+        FLAKY_FAIL_THRESHOLD: ${{ vars.FLAKY_FAIL_THRESHOLD || '0' }}
+        FLAKY_FAIL_MODE: ${{ vars.FLAKY_FAIL_MODE || 'fail' }}
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:

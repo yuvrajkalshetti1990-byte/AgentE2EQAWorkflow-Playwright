@@ -55,9 +55,9 @@ function parseArgs() {
 }
 
 // ---------------------------------------------------------------------------
-// Failure classification (mirrors qa-framework/common/utils/test-result-parser.ts)
+// Failure classification — per-framework fix matrices
 // ---------------------------------------------------------------------------
-const FIX_MATRIX = {
+const FIX_MATRIX_CYPRESS = {
   API_KEY_MISSING: {
     label: 'API Key Missing',
     autoFixable: true,
@@ -104,6 +104,58 @@ const FIX_MATRIX = {
     recommendation: 'Review the raw error message. Re-classify manually once the root cause is identified.',
   },
 };
+
+const FIX_MATRIX_PLAYWRIGHT = {
+  API_KEY_MISSING: {
+    label: 'API Key Missing',
+    autoFixable: true,
+    recommendation: 'Pass auth headers via `request.post(url, { headers: { "x-api-key": process.env.API_KEY } })`. Store keys as GitHub Actions secrets and inject via `process.env`.',
+  },
+  ENV_MISSING: {
+    label: 'Environment Variable Missing',
+    autoFixable: true,
+    recommendation: 'Guard `process.env` calls with a fallback: `const val = process.env.MY_VAR ?? "default"`. Declare required env vars in `playwright.config.ts` under `use.extraHTTPHeaders` or pass via dotenv.',
+  },
+  DATA_MISSING: {
+    label: 'Fixture / Test Data Missing',
+    autoFixable: true,
+    recommendation: 'Load test data with `const data = JSON.parse(fs.readFileSync("path/to/fixture.json", "utf8"))`. Place fixtures under `qa-framework/frameworks/playwright/fixtures/`.',
+  },
+  SELECTOR_ISSUE: {
+    label: 'Selector / Element Not Found',
+    autoFixable: true,
+    recommendation: 'Use `browser_snapshot` to re-inspect current selectors. Prefer `page.locator(\'[data-test="..."]\')` over class or XPath selectors. Use `await expect(locator).toBeVisible()` before interacting.',
+  },
+  NETWORK_FAILURE: {
+    label: 'Network / Navigation Failure',
+    autoFixable: true,
+    recommendation: 'Ensure `baseURL` is set in `playwright.config.ts` and use relative paths in `page.goto()`. For flaky navigation, add `{ waitUntil: "networkidle" }`. Check that the CI environment can reach the target URL.',
+  },
+  ASSERTION_FAILURE: {
+    label: 'Assertion Mismatch',
+    autoFixable: true,
+    recommendation: 'Verify the expected value against the live UI. Use Playwright\'s auto-retrying assertions: `expect(locator).toHaveText()`, `toHaveURL()`, `toBeVisible()`. Avoid `page.evaluate()` for DOM assertions.',
+  },
+  IFRAME_ISSUE: {
+    label: 'iframe Interaction Failure',
+    autoFixable: true,
+    recommendation: 'Use `page.frameLocator("iframe-selector")` to scope locators inside an iframe: `const frame = page.frameLocator("#my-iframe"); await frame.locator("button").click()`.',
+  },
+  FRAMEWORK_LIMITATION: {
+    label: 'Framework Limitation',
+    autoFixable: false,
+    recommendation: 'This scenario requires non-browser verification (email, DB, file system, OS-level). Cannot be automated as a browser test — move to `notimplemented/`.',
+  },
+  UNKNOWN: {
+    label: 'Unclassified Failure',
+    autoFixable: false,
+    recommendation: 'Review the raw error message. Re-classify manually once the root cause is identified.',
+  },
+};
+
+function getFixMatrix(framework) {
+  return framework === 'playwright' ? FIX_MATRIX_PLAYWRIGHT : FIX_MATRIX_CYPRESS;
+}
 
 function classifyFailure(errorMessage) {
   if (!errorMessage) return 'UNKNOWN';
@@ -264,7 +316,9 @@ function fmtDate(isoOrDate) {
   return d.toUTCString().replace('GMT', 'UTC');
 }
 
-function statusIcon(status) {
+function statusIcon(status, retries) {
+  // A passed test that needed retries is FLAKY — distinct from a clean pass
+  if (status === 'passed' && retries > 0) return '⚠️ Flaky';
   return status === 'passed'  ? '✅ Pass'    :
          status === 'failed'  ? '❌ Fail'    :
          status === 'skipped' ? '⏭️ Skip'    : '❓';
@@ -283,8 +337,17 @@ function escapeTable(str) {
 // ---------------------------------------------------------------------------
 // Report section builders
 // ---------------------------------------------------------------------------
+function computeOverallStatus(run) {
+  if (run.failed > 0) return '❌ FAIL';
+  const flakyCount = run.browserGroups.flatMap(g =>
+    g.tests.filter(t => t.retries > 0 && t.status === 'passed')
+  ).length;
+  if (flakyCount > 0) return `⚠️ UNSTABLE (${flakyCount} flaky)`;
+  return '✅ PASS';
+}
+
 function buildHeader(run, storyKey, cfg) {
-  const overallStatus = run.failed > 0 ? '❌ FAIL' : '✅ PASS';
+  const overallStatus = computeOverallStatus(run);
   const shortSha = cfg.commitSha ? cfg.commitSha.substring(0, 7) : 'unknown';
   const runLink  = cfg.runUrl ? `[View Run](${cfg.runUrl})` : 'N/A';
   const framework = run.framework === 'playwright'
@@ -307,10 +370,11 @@ function buildHeader(run, storyKey, cfg) {
 }
 
 function buildExecutiveSummary(run) {
-  const healingNeeded = run.browserGroups.some(g =>
-    g.tests.some(t => t.retries > 0)
+  const flakyTests = run.browserGroups.flatMap(g =>
+    g.tests.filter(t => t.retries > 0 && t.status === 'passed')
   );
-  const overallStatus = run.failed > 0 ? '❌ FAIL' : '✅ PASS';
+  const healingNeeded = run.browserGroups.some(g => g.tests.some(t => t.retries > 0));
+  const overallStatus = computeOverallStatus(run);
 
   return [
     '## 1. Executive Summary',
@@ -321,6 +385,7 @@ function buildExecutiveSummary(run) {
     `| **Total Tests** | ${run.total} |`,
     `| **Passed** | ${run.passed} (${pct(run.passed, run.total)}) |`,
     `| **Failed** | ${run.failed} (${pct(run.failed, run.total)}) |`,
+    `| **Flaky (passed on retry)** | ${flakyTests.length} |`,
     `| **Skipped / Pending** | ${run.skipped} (${pct(run.skipped, run.total)}) |`,
     `| **Duration** | ${fmtDuration(run.durationMs)} |`,
     `| **Healing Required** | ${healingNeeded ? 'Yes — retries detected (see Section 5)' : 'No'} |`,
@@ -346,7 +411,7 @@ function buildExecutionResults(run) {
 
     group.tests.forEach((t, idx) => {
       lines.push(
-        `| ${idx + 1} | ${escapeTable(t.suiteName)} | ${escapeTable(t.title)} | ${statusIcon(t.status)} | ${fmtDuration(t.durationMs)} |`
+        `| ${idx + 1} | ${escapeTable(t.suiteName)} | ${escapeTable(t.title)} | ${statusIcon(t.status, t.retries)} | ${fmtDuration(t.durationMs)} |`
       );
     });
     lines.push('');
@@ -393,7 +458,7 @@ function buildAcCoverage(run, storyKey) {
     lines.push('|---|---|---|');
     for (const [ac, tests] of Object.entries(acMap).sort()) {
       for (const t of tests) {
-        lines.push(`| **${ac}** | ${escapeTable(t.title)} | ${statusIcon(t.status)} |`);
+        lines.push(`| **${ac}** | ${escapeTable(t.title)} | ${statusIcon(t.status, t.retries)} |`);
       }
     }
     lines.push('');
@@ -424,6 +489,7 @@ function buildAcCoverage(run, storyKey) {
 
 function buildFailureAnalysis(run) {
   const lines = ['## 4. Failure Analysis', ''];
+  const fixMatrix = getFixMatrix(run.framework);
 
   const failedTests = run.browserGroups.flatMap(g =>
     g.tests
@@ -446,7 +512,7 @@ function buildFailureAnalysis(run) {
   lines.push(`> **${failedTests.length} test(s) failed** across **${Object.keys(byCategory).length} failure category(ies).**`, '');
 
   for (const [cat, tests] of Object.entries(byCategory)) {
-    const info = FIX_MATRIX[cat] || FIX_MATRIX.UNKNOWN;
+    const info = fixMatrix[cat] || fixMatrix.UNKNOWN;
     lines.push(`### ${info.label} (${tests.length} failure${tests.length > 1 ? 's' : ''})`);
     lines.push('');
     lines.push(`**Auto-fixable:** ${info.autoFixable ? 'Yes' : 'No'}  `);
@@ -484,7 +550,7 @@ function buildHealingActivities(run) {
   lines.push('|---|-----------|---------|---------|--------------|');
   retriedTests.forEach((t, i) => {
     lines.push(
-      `| ${i + 1} | ${escapeTable(t.title)} | ${t.browser} | ${t.retries} | ${statusIcon(t.status)} |`
+      `| ${i + 1} | ${escapeTable(t.title)} | ${t.browser} | ${t.retries} | ${statusIcon(t.status, t.retries)} |`
     );
   });
   lines.push('');
@@ -538,6 +604,7 @@ function buildCoverageSummary(run, storyKey) {
 function buildGapsAndRecommendations(run) {
   const lines = ['## 7. Gaps & Recommendations', ''];
   const recs   = [];
+  const fixMatrix = getFixMatrix(run.framework);
   const allTests = run.browserGroups.flatMap(g => g.tests);
 
   // Failure-based recommendations
@@ -551,7 +618,7 @@ function buildGapsAndRecommendations(run) {
   }
 
   for (const [cat, count] of Object.entries(catCounts)) {
-    const info = FIX_MATRIX[cat] || FIX_MATRIX.UNKNOWN;
+    const info = fixMatrix[cat] || fixMatrix.UNKNOWN;
     recs.push({
       priority: info.autoFixable ? 'High' : 'Medium',
       issue:    `${count} test(s) failing — ${info.label}`,
@@ -640,6 +707,50 @@ function buildFooter(storyKey, cfg) {
 }
 
 // ---------------------------------------------------------------------------
+// Not-implemented stub scanner (M-6)
+// ---------------------------------------------------------------------------
+function buildNotImplemented() {
+  const notImplDir = path.join('qa-framework', 'notimplemented');
+  if (!fs.existsSync(notImplDir)) return '';
+
+  const stubs = [];
+  for (const entry of fs.readdirSync(notImplDir)) {
+    if (!entry.endsWith('.cy.ts') && !entry.endsWith('.spec.ts')) continue;
+    if (entry.startsWith('_TEMPLATE')) continue;
+    const src  = fs.readFileSync(path.join(notImplDir, entry), 'utf8');
+    const jira     = (src.match(/@jira\s+(\S+)/)   || [])[1] || '—';
+    const ac       = (src.match(/@ac\s+(\S+)/)      || [])[1] || '—';
+    const acText   = (src.match(/@acText\s+"([^"]+)"/) || [])[1] || '—';
+    const category = (src.match(/@category\s+(\S+)/)   || [])[1] || '—';
+    stubs.push({ file: entry, jira, ac, acText, category });
+  }
+
+  if (stubs.length === 0) return '';
+
+  const lines = [
+    '---\n',
+    '## 8. Manual Verification Required — 🚫 BLOCKED',
+    '',
+    '> ⚠️ **STORY STATUS: BLOCKED** — The following acceptance criteria cannot be automated.',
+    '> **The story must NOT be marked Done** until all items below are manually verified.',
+    '',
+    '| Story | AC | Description | Category | Stub File |',
+    '|-------|----|-------------|----------|-----------|',
+  ];
+  for (const s of stubs) {
+    lines.push(
+      `| ${s.jira} | AC-${s.ac} | ${escapeTable(s.acText)} | \`${s.category}\` | \`${s.file}\` |`
+    );
+  }
+  lines.push('');
+  lines.push('> **Action Required:** Complete manual verification steps documented inside each stub file.');
+  lines.push('> Once verified, update the stub with `@verified true` and re-generate the report.');
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 function main() {
@@ -697,6 +808,7 @@ function main() {
     buildCoverageSummary(run, storyKey),
     '---\n',
     buildGapsAndRecommendations(run),
+    buildNotImplemented(),
     buildFooter(storyKey, cfg),
   ];
 

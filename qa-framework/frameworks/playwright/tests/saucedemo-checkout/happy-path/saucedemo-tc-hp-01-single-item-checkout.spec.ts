@@ -2,57 +2,47 @@
 // AC-2: Complete single-item checkout from login through order confirmation
 
 import { test, expect } from '@playwright/test';
+import { LoginPage }     from '../../../pages/saucedemo/LoginPage';
+import { InventoryPage } from '../../../pages/saucedemo/InventoryPage';
+import { CartPage }      from '../../../pages/saucedemo/CartPage';
+import { CheckoutPage }  from '../../../pages/saucedemo/CheckoutPage';
 
 test.describe('Happy Path – Full Checkout Flow', () => {
   test.beforeEach(async ({ page }) => {
-    const username = process.env.SAUCE_USERNAME ?? 'standard_user';
-    const password = process.env.SAUCE_PASSWORD ?? 'secret_sauce';
-    console.log('[STEP] Logging in as %s', username);
-    await page.goto('https://www.saucedemo.com');
-    console.log('[NAV] url=%s title=%s', page.url(), await page.title());
-    await page.locator('[data-test="username"]').fill(username);
-    await page.locator('[data-test="password"]').fill(password);
-    await page.locator('[data-test="login-button"]').click();
-    console.log('[ASSERT] Expected URL to contain /inventory.html, got: %s', page.url());
-    await expect(page).toHaveURL(/inventory\.html/);
+    const loginPage = new LoginPage(page);
+    await loginPage.loginWithDefaults();
   });
 
   // AC-2: Complete single-item checkout from login through order confirmation
   test('TC-HP-01: Complete single-item checkout from login to order confirmation', async ({ page }) => {
     console.log('[STEP] Starting TC-HP-01: single-item checkout');
-    await expect(page.locator('.title')).toHaveText('Products');
+    const inventoryPage = new InventoryPage(page);
+    const cartPage      = new CartPage(page);
+    const checkoutPage  = new CheckoutPage(page);
 
-    // 2. Click 'Add to cart' button for Sauce Labs Backpack
-    await page.locator('[data-test="add-to-cart-sauce-labs-backpack"]').click();
+    await inventoryPage.assertPageLoaded();
 
-    // 3. Verify cart badge shows '1' and button changed to Remove
-    await expect(page.locator('.shopping_cart_badge')).toHaveText('1');
+    // 2. Add Sauce Labs Backpack to cart
+    await inventoryPage.addToCart('add-to-cart-sauce-labs-backpack');
+    await inventoryPage.assertCartBadge('1');
     await expect(page.locator('[data-test="remove-sauce-labs-backpack"]')).toBeVisible();
 
-    // 4. Navigate to cart page
-    await page.goto('https://www.saucedemo.com/cart.html');
-    await expect(page.locator('.title')).toHaveText('Your Cart');
-
-    // 5. Verify Backpack appears in cart with correct details
-    await expect(page.locator('.inventory_item_name')).toHaveText('Sauce Labs Backpack');
-    await expect(page.locator('.inventory_item_price')).toHaveText('$29.99');
+    // 3. Navigate to cart and verify
+    await inventoryPage.goToCart();
+    await cartPage.assertPageLoaded();
+    await cartPage.assertItem(0, 'Sauce Labs Backpack', '$29.99');
     await expect(page.locator('[data-test="continue-shopping"]')).toBeVisible();
     await expect(page.locator('[data-test="checkout"]')).toBeVisible();
 
-    // 6. Click the Checkout button
-    await page.locator('[data-test="checkout"]').click();
-    await expect(page).toHaveURL(/checkout-step-one\.html/);
+    // 4. Click Checkout
+    await cartPage.clickCheckout();
 
-    // 7. Fill in checkout information
-    await page.locator('[data-test="firstName"]').fill('John');
-    await page.locator('[data-test="lastName"]').fill('Doe');
-    await page.locator('[data-test="postalCode"]').fill('12345');
+    // 5. Fill checkout info and continue to overview
+    await checkoutPage.fillInfo('John', 'Doe', '12345');
+    await checkoutPage.clickContinue();
 
-    // 8. Click Continue to proceed to overview
-    await page.locator('[data-test="continue"]').click();
-    await expect(page).toHaveURL(/checkout-step-two\.html/);
-
-    // 9. Verify overview page details
+    // 6. Verify overview page details
+    console.log('[ASSERT] Verifying overview page details');
     await expect(page.locator('.inventory_item_name')).toHaveText('Sauce Labs Backpack');
     await expect(page.locator('.inventory_item_price')).toHaveText('$29.99');
     await expect(page.locator('.summary_info')).toContainText('SauceCard #31337');
@@ -63,22 +53,14 @@ test.describe('Happy Path – Full Checkout Flow', () => {
     await expect(page.locator('[data-test="cancel"]')).toBeVisible();
     await expect(page.locator('[data-test="finish"]')).toBeVisible();
 
-    // 10. Click Finish to place the order
-    await page.locator('[data-test="finish"]').click();
-    await expect(page).toHaveURL(/checkout-complete\.html/);
+    // 7. Finish order and verify confirmation via CheckoutPage POM
+    await checkoutPage.clickFinish();
+    await checkoutPage.assertOrderConfirmation();
 
-    // 11. Verify order confirmation page
-    await expect(page.locator('h2')).toHaveText('Thank you for your order!');
-    await expect(page.locator('.complete-text')).toHaveText(
-      'Your order has been dispatched, and will arrive just as fast as the pony can get there!'
-    );
-    await expect(page.locator('[data-test="back-to-products"]')).toBeVisible();
-
-    // 12. Click Back Home button
+    // 8. Navigate back to products
     await page.locator('[data-test="back-to-products"]').click();
+    console.log('[NAV] url=%s', page.url());
     await expect(page).toHaveURL(/inventory\.html/);
-
-    // 13. Verify cart badge is absent (cart is cleared after order)
     console.log('[ASSERT] Verifying cart badge is absent after order completion');
     await expect(page.locator('.shopping_cart_badge')).not.toBeVisible();
     console.log('[NAV] Final url: %s', page.url());

@@ -2,19 +2,12 @@
 // AC-5: Submitting the checkout form with all fields empty shows a validation error
 
 import { test, expect } from '@playwright/test';
+import { LoginPage }     from '../../../pages/saucedemo/LoginPage';
+import { InventoryPage } from '../../../pages/saucedemo/InventoryPage';
 
 test.describe('Negative / Validation Scenarios', () => {
   test.beforeEach(async ({ page }) => {
-    const username = process.env.SAUCE_USERNAME ?? 'standard_user';
-    const password = process.env.SAUCE_PASSWORD ?? 'secret_sauce';
-    console.log('[STEP] Logging in as %s', username);
-    await page.goto('https://www.saucedemo.com');
-    console.log('[NAV] url=%s title=%s', page.url(), await page.title());
-    await page.locator('[data-test="username"]').fill(username);
-    await page.locator('[data-test="password"]').fill(password);
-    await page.locator('[data-test="login-button"]').click();
-    console.log('[ASSERT] Expected URL to contain /inventory.html, got: %s', page.url());
-    await expect(page).toHaveURL(/inventory\.html/);
+    await new LoginPage(page).loginWithDefaults();
   });
 
   // AC-5: Submitting the checkout form with all fields empty shows a validation error
@@ -22,7 +15,7 @@ test.describe('Negative / Validation Scenarios', () => {
     console.log('[STEP] Starting TC-NEG-01: all-fields-empty validation');
     // 1. Add any item to cart and navigate to checkout info page
     await page.locator('[data-test="add-to-cart-sauce-labs-backpack"]').click();
-    await page.goto('https://www.saucedemo.com/cart.html');
+    await new InventoryPage(page).goToCart();
     await page.locator('[data-test="checkout"]').click();
     await expect(page).toHaveURL(/checkout-step-one\.html/);
 

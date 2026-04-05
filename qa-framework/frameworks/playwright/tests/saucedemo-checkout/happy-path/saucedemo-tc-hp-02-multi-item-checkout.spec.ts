@@ -2,19 +2,12 @@
 // AC-3: Complete multi-item checkout with correct price calculations
 
 import { test, expect } from '@playwright/test';
+import { LoginPage }     from '../../../pages/saucedemo/LoginPage';
+import { InventoryPage } from '../../../pages/saucedemo/InventoryPage';
 
 test.describe('Happy Path – Full Checkout Flow', () => {
   test.beforeEach(async ({ page }) => {
-    const username = process.env.SAUCE_USERNAME ?? 'standard_user';
-    const password = process.env.SAUCE_PASSWORD ?? 'secret_sauce';
-    console.log('[STEP] Logging in as %s', username);
-    await page.goto('https://www.saucedemo.com');
-    console.log('[NAV] url=%s title=%s', page.url(), await page.title());
-    await page.locator('[data-test="username"]').fill(username);
-    await page.locator('[data-test="password"]').fill(password);
-    await page.locator('[data-test="login-button"]').click();
-    console.log('[ASSERT] Expected URL to contain /inventory.html, got: %s', page.url());
-    await expect(page).toHaveURL(/inventory\.html/);
+    await new LoginPage(page).loginWithDefaults();
   });
 
   // AC-3: Complete multi-item checkout with correct price calculations
@@ -29,7 +22,7 @@ test.describe('Happy Path – Full Checkout Flow', () => {
     await expect(page.locator('.shopping_cart_badge')).toHaveText('2');
 
     // 4. Navigate to cart page
-    await page.goto('https://www.saucedemo.com/cart.html');
+    await new InventoryPage(page).goToCart();
 
     // 5. Verify both items appear in cart with correct names and prices
     const cartItemNames = page.locator('.inventory_item_name');

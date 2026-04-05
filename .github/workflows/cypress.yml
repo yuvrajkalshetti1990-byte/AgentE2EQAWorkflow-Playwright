@@ -108,6 +108,18 @@ jobs:
     - name: "Fixture validation: all cy.fixture() calls must have @requiredFixtures"
       run: node scripts/validate-fixtures.js
 
+    - name: "Pre-flight: Environment validation"
+      run: node scripts/preflight-env.js --framework cypress
+      env:
+        BASE_URL: ${{ vars.BASE_URL || '' }}
+        REQUIRE_BASE_URL: ${{ vars.REQUIRE_BASE_URL || 'false' }}
+        EXPECTED_HOST: ${{ vars.EXPECTED_HOST || '' }}
+
+    - name: "Pre-flight: AC coverage check"
+      run: node scripts/validate-ac-coverage.js
+      env:
+        AC_GATE_MODE: ${{ vars.AC_GATE_MODE || 'warn' }}
+
     - name: "Pre-flight: Cypress test compliance check"
       run: node scripts/validate-cypress-tests.js
 
@@ -118,7 +130,7 @@ jobs:
       if: steps.count_specs.outputs.SPEC_COUNT != '0'
       run: |
         mkdir -p qa-framework/frameworks/cypress/reports
-        npx cypress run --config-file qa-framework/frameworks/cypress/cypress.config.ts
+        npx cypress run --config-file qa-framework/frameworks/cypress/cypress.config.ts --browser chrome
 
     - name: "DEBUG: Cypress results"
       if: always() && steps.count_specs.outputs.SPEC_COUNT != '0'

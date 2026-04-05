@@ -156,6 +156,9 @@ function httpsRequest(method, urlStr, headers, body) {
         }
       });
     });
+    req.setTimeout(30000, () => {
+      req.destroy(new Error(`Request timed out after 30s: ${method} ${urlStr}`));
+    });
     req.on('error', reject);
     if (payload) req.write(payload);
     req.end();
@@ -317,7 +320,7 @@ Include step-by-step details and expected outcomes. Return JSON in this format:
   ]
 }`;
 
-  const responseText = await callLLM(sysPrompt, userPrompt);
+  const responseText = await callLLM(sysPrompt, userPrompt, 'PLANNER');
   const plan = extractJSON(responseText);
 
   if (!plan || !Array.isArray(plan.testPlan) || plan.testPlan.length === 0) {
@@ -376,7 +379,7 @@ async function runGenerator(framework, issueKey, summary, description, testPlan)
       : PLAYWRIGHT_GENERATOR_SYSTEM_PROMPT;
 
     const userPrompt = buildGeneratorPrompt(framework, issueKey, summary, description, scenario);
-    const code = await withRetry('GENERATOR', () => callLLM(sysPrompt, userPrompt));
+    const code = await withRetry('GENERATOR', () => callLLM(sysPrompt, userPrompt, 'GENERATOR'));
     const extracted = extractCode(code) || code;
 
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -635,7 +638,7 @@ ${originalCode}
 Return ONLY the fixed TypeScript source code. Preserve all existing assertions and logic.`;
 
     try {
-      const fixedCode = await withRetry('HEALER', () => callLLM(sysPrompt, userPrompt));
+      const fixedCode = await withRetry('HEALER', () => callLLM(sysPrompt, userPrompt, 'HEALER'));
       const extracted = extractCode(fixedCode) || fixedCode;
 
       // Back up original before overwriting
@@ -971,7 +974,15 @@ async function commitFile(filePath, issueKey) {
 // LLM helper (OpenAI)
 // ---------------------------------------------------------------------------
 
-async function callLLM(systemPrompt, userPrompt) {
+/**
+ * callLLM — call OpenAI chat completions with per-step identity logging
+ *
+ * @param {string} systemPrompt
+ * @param {string} userPrompt
+ * @param {string} [stepLabel]  Identifies the logical step (e.g. 'PLANNER', 'GENERATOR', 'HEALER').
+ *                              Surfaced in timeout/error messages for fast diagnosis.
+ */
+async function callLLM(systemPrompt, userPrompt, stepLabel = 'LLM') {
   const url     = 'https://api.openai.com/v1/chat/completions';
   const payload = {
     model:       cfg.openaiModel,
@@ -982,13 +993,33 @@ async function callLLM(systemPrompt, userPrompt) {
     ],
   };
 
-  const resp = await httpsRequest('POST', url,
-    { Authorization: `Bearer ${cfg.openaiKey}` },
-    payload
-  );
+  info(stepLabel, `Calling LLM (model=${cfg.openaiModel}, prompt_chars=${userPrompt.length})`);
+  const start = Date.now();
 
-  const choice = resp.data?.choices?.[0];
-  if (!choice) throw new Error('LLM returned no choices');
+  let resp;
+  try {
+    resp = await httpsRequest('POST', url,
+      { Authorization: `Bearer ${cfg.openaiKey}` },
+      payload
+    );
+  } catch (e) {
+    const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+    if (e.message.includes('timed out')) {
+      error(stepLabel, `LLM call timed out after ${elapsed}s — step=${stepLabel} model=${cfg.openaiModel}`);
+    } else {
+      error(stepLabel, `LLM call failed after ${elapsed}s: ${e.message}`);
+    }
+    throw e;
+  }
+
+  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+  const choice  = resp.data?.choices?.[0];
+  if (!choice) {
+    error(stepLabel, `LLM returned no choices after ${elapsed}s`);
+    throw new Error('LLM returned no choices');
+  }
+
+  info(stepLabel, `LLM responded in ${elapsed}s (finish_reason=${choice.finish_reason})`);
   return choice.message?.content || '';
 }
 

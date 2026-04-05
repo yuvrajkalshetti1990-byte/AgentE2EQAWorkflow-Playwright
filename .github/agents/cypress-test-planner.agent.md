@@ -45,6 +45,30 @@ Explore the application thoroughly once and produce a complete plan so no re-exp
   re-explore the app.
 - Only run the planner again if a genuinely new page or feature area is being added.
 
+## Module-Level Seed Cache
+
+Before exploring, check for an existing **module-level seed file** at:
+
+```
+qa-framework/frameworks/cypress/specs/modules/{app-prefix}-module-seed.md
+```
+
+**If the module seed exists:**
+- Do NOT re-explore the application
+- Read the seed to recover all known pages, selectors, commands, and flows
+- Generate only the **story-level delta**: new scenarios specific to the current Jira story
+  that are not already covered in the seed
+- Save the delta as `{story-key-lower}-cypress-test-plan.md` alongside the seed (`specs/` folder)
+- Append any newly discovered pages or selectors to the seed file
+
+**If the module seed does NOT exist:**
+- Explore the application fully (one-time)
+- After exploration, save two files:
+  1. **`specs/modules/{app-prefix}-module-seed.md`** — permanent, module-level catalog of all
+     pages, selectors, custom commands needed, flows, and auth patterns discovered
+  2. **`specs/{story-key-lower}-cypress-test-plan.md`** — story-specific scenarios for the current request
+- Future planner runs for the same app will read the seed and skip re-exploration
+
 ## Workflow
 
 ### 1. Navigate and Explore

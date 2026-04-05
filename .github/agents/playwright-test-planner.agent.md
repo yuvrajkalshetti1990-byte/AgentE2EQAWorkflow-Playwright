@@ -49,6 +49,30 @@ thoroughly once and produce a complete plan so that no re-exploration is ever ne
 - Only run the planner again if a genuinely new page or feature area is being added that is not covered by the
   existing plan.
 
+## Module-Level Seed Cache
+
+Before exploring, check for an existing **module-level seed file** at:
+
+```
+qa-framework/frameworks/playwright/specs/modules/{app-prefix}-module-seed.md
+```
+
+**If the module seed exists:**
+- Do NOT re-explore the application
+- Read the seed to recover all known pages, selectors, and flows
+- Generate only the **story-level delta**: new scenarios specific to the current Jira story
+  that are not already covered in the seed
+- Save the delta as `{story-key-lower}-test-plan.md` alongside the seed (`specs/` folder)
+- Append any newly discovered pages or selectors to the seed file
+
+**If the module seed does NOT exist:**
+- Explore the application fully (one-time)
+- After exploration, save two files:
+  1. **`specs/modules/{app-prefix}-module-seed.md`** — permanent, module-level catalog of all
+     pages, selectors, flows, and authentication patterns discovered
+  2. **`specs/{story-key-lower}-test-plan.md`** — story-specific scenarios for the current request
+- Future planner runs for the same app will read the seed and skip re-exploration
+
 You will:
 
 1. **Navigate and Explore**

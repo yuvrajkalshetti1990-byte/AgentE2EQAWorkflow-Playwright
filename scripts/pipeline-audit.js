@@ -427,6 +427,117 @@ check('C41', 'lint-resilience.js exists and wired in cypress.yml before test exe
 });
 
 // ---------------------------------------------------------------------------
+// Hardening checks — April 2026
+// ---------------------------------------------------------------------------
+
+check('C42', 'preflight-env.js exists and fails loudly on critical violations', () => {
+  const src = requireFile('scripts/preflight-env.js');
+  requirePattern(src, /process\.exit\s*\(\s*1\s*\)/, 'preflight-env.js — exit(1)');
+  requirePattern(src, /REQUIRE_BASE_URL|BASE_URL/, 'preflight-env.js — BASE_URL check');
+  requirePattern(src, /ENV SAFETY VIOLATION|EXPECTED_HOST/, 'preflight-env.js — host mismatch guard');
+  return 'preflight-env.js exists with BASE_URL + host-mismatch + exit(1)';
+});
+
+check('C43', 'preflight-env.js wired in playwright.yml before test execution', () => {
+  const wf = requireFile('.github/workflows/playwright.yml');
+  const preIdx = wf.indexOf('preflight-env.js');
+  const runIdx = wf.indexOf('npx playwright test');
+  if (preIdx === -1) throw new Error('preflight-env.js not referenced in playwright.yml');
+  if (runIdx  === -1) throw new Error('npx playwright test not found in playwright.yml');
+  if (preIdx  > runIdx) throw new Error('preflight-env.js appears AFTER test execution in playwright.yml');
+  return 'preflight-env.js precedes npx playwright test';
+});
+
+check('C44', 'preflight-env.js wired in cypress.yml before test execution', () => {
+  const wf = requireFile('.github/workflows/cypress.yml');
+  const preIdx = wf.indexOf('preflight-env.js');
+  const runIdx = wf.indexOf('npx cypress run');
+  if (preIdx === -1) throw new Error('preflight-env.js not referenced in cypress.yml');
+  if (runIdx  === -1) throw new Error('npx cypress run not found in cypress.yml');
+  if (preIdx  > runIdx) throw new Error('preflight-env.js appears AFTER cypress run in cypress.yml');
+  return 'preflight-env.js precedes npx cypress run';
+});
+
+check('C45', 'global-setup.ts exists for Playwright runtime env validation', () => {
+  const src = requireFile('qa-framework/frameworks/playwright/global-setup.ts');
+  requirePattern(src, /ENV VALIDATION|ENV MISMATCH/, 'global-setup.ts — validation messages');
+  requirePattern(src, /throw new Error/, 'global-setup.ts — throws on failure');
+  requirePattern(src, /BASE_URL/, 'global-setup.ts — uses BASE_URL');
+  return 'global-setup.ts validates BASE_URL reachability + host match';
+});
+
+check('C46', 'global-setup.ts wired in playwright.config.ts', () => {
+  const src = requireFile('qa-framework/frameworks/playwright/playwright.config.ts');
+  requirePattern(src, /globalSetup.*global-setup/, 'playwright.config.ts — globalSetup');
+  return 'globalSetup: \'./global-setup.ts\' present in playwright.config.ts';
+});
+
+check('C47', 'validate-ac-coverage.js exists with pass/fail modes', () => {
+  const src = requireFile('scripts/validate-ac-coverage.js');
+  requirePattern(src, /AC_GATE_MODE/, 'validate-ac-coverage.js — AC_GATE_MODE');
+  requirePattern(src, /process\.exit\s*\(\s*1\s*\)/, 'validate-ac-coverage.js — exit(1)');
+  requirePattern(src, /notimplemented/i, 'validate-ac-coverage.js — scans notimplemented/');
+  return 'validate-ac-coverage.js with warn/fail mode + notimplemented scan + exit(1)';
+});
+
+check('C48', 'validate-ac-coverage.js wired in playwright.yml before test execution', () => {
+  const wf = requireFile('.github/workflows/playwright.yml');
+  const acIdx  = wf.indexOf('validate-ac-coverage.js');
+  const runIdx = wf.indexOf('npx playwright test');
+  if (acIdx  === -1) throw new Error('validate-ac-coverage.js not referenced in playwright.yml');
+  if (runIdx === -1) throw new Error('npx playwright test not found in playwright.yml');
+  if (acIdx  > runIdx) throw new Error('validate-ac-coverage.js appears AFTER test execution');
+  return 'validate-ac-coverage.js precedes npx playwright test';
+});
+
+check('C49', 'check-flaky-threshold.js exists with configurable threshold', () => {
+  const src = requireFile('scripts/check-flaky-threshold.js');
+  requirePattern(src, /FLAKY_FAIL_THRESHOLD/, 'check-flaky-threshold.js — threshold config');
+  requirePattern(src, /FLAKY_FAIL_MODE/, 'check-flaky-threshold.js — mode config');
+  requirePattern(src, /process\.exit\s*\(\s*1\s*\)/, 'check-flaky-threshold.js — exit(1)');
+  return 'check-flaky-threshold.js with FLAKY_FAIL_THRESHOLD + mode + exit(1)';
+});
+
+check('C50', 'check-flaky-threshold.js wired in playwright.yml after test run', () => {
+  const wf = requireFile('.github/workflows/playwright.yml');
+  const runIdx   = wf.indexOf('npx playwright test');
+  const flakyIdx = wf.indexOf('check-flaky-threshold.js');
+  if (flakyIdx === -1) throw new Error('check-flaky-threshold.js not referenced in playwright.yml');
+  if (runIdx   === -1) throw new Error('npx playwright test not found in playwright.yml');
+  if (flakyIdx < runIdx) throw new Error('check-flaky-threshold.js appears BEFORE test execution — must run after');
+  return 'check-flaky-threshold.js follows npx playwright test';
+});
+
+check('C51', 'check-framework-parity.js exists with strict mode', () => {
+  const src = requireFile('scripts/check-framework-parity.js');
+  requirePattern(src, /PARITY_STRICT/, 'check-framework-parity.js — strict mode');
+  requirePattern(src, /process\.exit\s*\(\s*1\s*\)/, 'check-framework-parity.js — exit(1)');
+  return 'check-framework-parity.js with PARITY_STRICT + exit(1)';
+});
+
+check('C52', 'POM enforcement gate in validate-playwright-tests.js', () => {
+  const src = requireFile('scripts/validate-playwright-tests.js');
+  requirePattern(src, /HAS_POM_IMPORT_RE|POM_ENFORCE/, 'validate-playwright-tests.js — POM gate');
+  requirePattern(src, /pages\//, 'validate-playwright-tests.js — pages/ import check');
+  return 'POM enforcement gate present with POM_ENFORCE=strict mode';
+});
+
+check('C53', 'generate-report.js shows UNSTABLE status for flaky tests (R9)', () => {
+  const src = requireFile('scripts/generate-report.js');
+  requirePattern(src, /UNSTABLE/, 'generate-report.js — UNSTABLE status');
+  requirePattern(src, /computeOverallStatus|FLAKY.*flaky|flaky.*FLAKY/i, 'generate-report.js — flaky detection');
+  requirePattern(src, /Flaky \(passed on retry\)|FLAKY PASS/i, 'generate-report.js — flaky row label');
+  return 'UNSTABLE status + flaky row label in report';
+});
+
+check('C54', 'EMPTY_FILE rule in validate-test-quality.js (R7)', () => {
+  const src = requireFile('scripts/validate-test-quality.js');
+  requirePattern(src, /EMPTY_FILE/, 'validate-test-quality.js — EMPTY_FILE rule');
+  requirePattern(src, /No test\(\) blocks|No it\(\) blocks/, 'validate-test-quality.js — empty file message');
+  return 'EMPTY_FILE rule blocks empty/stub test files';
+});
+
+// ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
 
