@@ -2,60 +2,50 @@
 // AC-4: Cancel from the Checkout Overview page returns user to inventory with cart preserved
 
 import { test, expect } from '@playwright/test';
+import { LoginPage }     from '../../../pages/saucedemo/LoginPage';
+import { InventoryPage } from '../../../pages/saucedemo/InventoryPage';
+import { CartPage }      from '../../../pages/saucedemo/CartPage';
+import { CheckoutPage }  from '../../../pages/saucedemo/CheckoutPage';
 
 test.describe('Happy Path – Full Checkout Flow', () => {
   test.beforeEach(async ({ page }) => {
-    const username = process.env.SAUCE_USERNAME ?? 'standard_user';
-    const password = process.env.SAUCE_PASSWORD ?? 'secret_sauce';
-    console.log('[STEP] Logging in as %s', username);
-    await page.goto('https://www.saucedemo.com');
-    console.log('[NAV] url=%s title=%s', page.url(), await page.title());
-    await page.locator('[data-test="username"]').fill(username);
-    await page.locator('[data-test="password"]').fill(password);
-    await page.locator('[data-test="login-button"]').click();
-    console.log('[ASSERT] Expected URL to contain /inventory.html, got: %s', page.url());
-    await expect(page).toHaveURL(/inventory\.html/);
+    await new LoginPage(page).loginWithDefaults();
   });
 
   // AC-4: Cancel from the Checkout Overview page returns user to inventory with cart preserved
   test('TC-HP-03: Checkout cancellation from the Overview page', async ({ page }) => {
     console.log('[STEP] Starting TC-HP-03: cancel from checkout overview');
-    await page.locator('[data-test="add-to-cart-sauce-labs-onesie"]').click();
-    await expect(page.locator('.shopping_cart_badge')).toHaveText('1');
+    const inventoryPage = new InventoryPage(page);
+    const cartPage      = new CartPage(page);
+    const checkoutPage  = new CheckoutPage(page);
 
-    // 2. Navigate to cart page
-    await page.goto('https://www.saucedemo.com/cart.html');
-    await expect(page.locator('.inventory_item_name')).toHaveText('Sauce Labs Onesie');
+    // 1. Add Sauce Labs Onesie to cart and verify badge
+    await inventoryPage.addToCart('add-to-cart-sauce-labs-onesie');
+    await inventoryPage.assertCartBadge('1');
 
-    // 3. Click Checkout button
-    await page.locator('[data-test="checkout"]').click();
-    await expect(page).toHaveURL(/checkout-step-one\.html/);
+    // 2. Navigate to cart and verify item
+    await inventoryPage.goToCart();
+    await cartPage.assertItem(0, 'Sauce Labs Onesie', '$7.99');
 
-    // 4. Fill in checkout information
-    await page.locator('[data-test="firstName"]').fill('Alice');
-    await page.locator('[data-test="lastName"]').fill('Walker');
-    await page.locator('[data-test="postalCode"]').fill('10001');
+    // 3. Click Checkout and fill info
+    await cartPage.clickCheckout();
+    await checkoutPage.fillInfo('Alice', 'Walker', '10001');
 
-    // 5. Click Continue to proceed to overview
-    await page.locator('[data-test="continue"]').click();
-    await expect(page).toHaveURL(/checkout-step-two\.html/);
+    // 4. Click Continue to proceed to overview and verify
+    await checkoutPage.clickContinue();
+    await checkoutPage.assertOverviewItem(0, 'Sauce Labs Onesie', '$7.99');
+    await checkoutPage.assertOverviewSummary('Item total: $7.99', 'Tax:', 'Total:');
 
-    // 6. Verify overview page shows item with price summary
-    await expect(page.locator('.inventory_item_name')).toHaveText('Sauce Labs Onesie');
-    await expect(page.locator('.summary_subtotal_label')).toContainText('Item total: $7.99');
-
-    // 7. Click Cancel on Overview page
-    await page.locator('[data-test="cancel"]').click();
-
-    // 8. Verify user is returned to inventory page
+    // 5. Click Cancel on Overview page — returns to inventory
+    await checkoutPage.clickCancel();
     await expect(page).toHaveURL(/inventory\.html/);
 
-    // 9. Verify cart badge still shows 1 (order was not placed)
-    await expect(page.locator('.shopping_cart_badge')).toHaveText('1');
+    // 6. Verify cart badge still shows 1 (order was not placed)
+    await inventoryPage.assertCartBadge('1');
 
-    // 10. Verify the Onesie is still in the cart by checking its Remove button is shown
+    // 7. Verify the Onesie is still in the cart by checking its Remove button is shown
     console.log('[ASSERT] Verifying cart still contains item after cancel (cart not cleared)');
-    await expect(page.locator('[data-test="remove-sauce-labs-onesie"]')).toBeVisible();
+    await inventoryPage.assertItemAdded('sauce-labs-onesie');
     console.log('[NAV] Final url: %s', page.url());
   });
 });

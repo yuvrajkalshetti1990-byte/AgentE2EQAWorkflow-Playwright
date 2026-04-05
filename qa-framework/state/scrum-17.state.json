@@ -7,5 +7,15 @@
   "acVerdict": "AUTOMATE",
   "acScore": 4.4,
   "githubIssueNumber": 18,
-  "jiraStatus": "in-qa"
+  "jiraStatus": "in-qa",
+  "testsPassed": true,
+  "postHealExitCode": 0,
+  "testRunSummary": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "duration": 476
+  },
+  "reportGenerated": true,
+  "reportPath": "qa-framework/reports/run-2026-04-05-master-report.md"
 }

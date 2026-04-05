@@ -1,0 +1,31 @@
+{
+  "issueKey": "SCRUM-14",
+  "framework": "playwright",
+  "branch": "dev",
+  "createdAt": "2026-04-05T00:00:00.000Z",
+  "updatedAt": "2026-04-05T00:00:00.000Z",
+  "acVerdict": "AUTOMATE",
+  "acScore": 4.6,
+  "jiraStatus": "in-qa",
+  "planGenerated": true,
+  "planPath": "qa-framework/frameworks/playwright/specs/saucedemo-checkout-test-plan.md",
+  "testsGenerated": true,
+  "testsPassed": true,
+  "postHealExitCode": 0,
+  "healerExhausted": false,
+  "testRunSummary": {
+    "passed": 5,
+    "failed": 0,
+    "skipped": 0,
+    "duration": 5500
+  },
+  "reportGenerated": true,
+  "reportPath": "qa-framework/reports/run-2026-04-05-master-report.md",
+  "generatedTestFiles": [
+    "qa-framework/frameworks/playwright/tests/saucedemo-checkout/happy-path/saucedemo-tc-hp-01-single-item-checkout.spec.ts",
+    "qa-framework/frameworks/playwright/tests/saucedemo-checkout/happy-path/saucedemo-tc-hp-03-cancel-from-overview.spec.ts",
+    "qa-framework/frameworks/playwright/tests/saucedemo-checkout/overview/saucedemo-tc-ovw-01-overview-details.spec.ts",
+    "qa-framework/frameworks/playwright/tests/saucedemo-checkout/negative/saucedemo-tc-neg-01-all-fields-empty.spec.ts",
+    "qa-framework/frameworks/playwright/tests/saucedemo-checkout/cart/saucedemo-tc-cart-01-item-details.spec.ts"
+  ]
+}

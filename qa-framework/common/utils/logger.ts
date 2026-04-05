@@ -1,40 +1,18 @@
-/**
- * Structured logger for the QA pipeline.
- * Writes to stdout with ISO timestamps and log levels.
- * Zero external dependencies — uses only Node.js built-ins.
- */
+import * as util from 'util';
 
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
-const LEVEL_PRIORITY: Record<LogLevel, number> = {
-  debug: 0,
-  info:  1,
-  warn:  2,
-  error: 3,
-};
-
-let minLevel: LogLevel = (process.env.LOG_LEVEL as LogLevel) ?? 'info';
-
-export function setLogLevel(level: LogLevel): void {
-  minLevel = level;
+interface Logger {
+  debug(msg: string, meta?: Record<string, unknown>): void;
+  info(msg:  string, meta?: Record<string, unknown>): void;
+  warn(msg:  string, meta?: Record<string, unknown>): void;
+  error(msg: string, meta?: Record<string, unknown>): void;
 }
 
-function emit(level: LogLevel, component: string, message: string, meta?: unknown): void {
-  if (LEVEL_PRIORITY[level] < LEVEL_PRIORITY[minLevel]) return;
-
-  const entry: Record<string, unknown> = {
-    ts:        new Date().toISOString(),
-    level:     level.toUpperCase(),
-    component,
-    message,
-  };
-
-  if (meta !== undefined) {
-    entry['meta'] = meta;
-  }
-
-  const line = JSON.stringify(entry);
-
+function write(level: LogLevel, namespace: string, msg: string, meta?: Record<string, unknown>): void {
+  const ts     = new Date().toISOString();
+  const prefix = `[${ts}] [${level.toUpperCase().padEnd(5)}] [${namespace}]`;
+  const line   = meta ? `${prefix} ${msg} ${util.inspect(meta, { depth: 3, colors: false })}` : `${prefix} ${msg}`;
   if (level === 'error' || level === 'warn') {
     process.stderr.write(line + '\n');
   } else {
@@ -42,14 +20,11 @@ function emit(level: LogLevel, component: string, message: string, meta?: unknow
   }
 }
 
-export function createLogger(component: string) {
+export function createLogger(namespace: string): Logger {
   return {
-    debug: (msg: string, meta?: unknown) => emit('debug', component, msg, meta),
-    info:  (msg: string, meta?: unknown) => emit('info',  component, msg, meta),
-    warn:  (msg: string, meta?: unknown) => emit('warn',  component, msg, meta),
-    error: (msg: string, meta?: unknown) => emit('error', component, msg, meta),
+    debug: (msg, meta) => write('debug', namespace, msg, meta),
+    info:  (msg, meta) => write('info',  namespace, msg, meta),
+    warn:  (msg, meta) => write('warn',  namespace, msg, meta),
+    error: (msg, meta) => write('error', namespace, msg, meta),
   };
 }
-
-/** Convenience root logger — use createLogger(name) for component-scoped instances */
-export const logger = createLogger('pipeline');

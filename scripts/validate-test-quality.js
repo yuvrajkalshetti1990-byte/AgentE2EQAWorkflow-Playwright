@@ -1,19 +1,21 @@
 #!/usr/bin/env node
 /**
- * Test Quality Gate Validator
+ * Test Quality Gate Validator                                           (R6)
  *
- * Fails the pipeline (exit 1) if any test file violates quality rules:
+ * STRICT MODE (default) — FAILS pipeline (exit 1) if any test file violates:
  *
- *   1. Navigation-only test — no assertions at all
- *   2. Weak assertions only — e.g. .toBeTruthy(), .to.exist, .to.be.visible alone
- *   3. Missing AC traceability — no // Jira: comment
+ *   0. EMPTY_FILE — no test() / it() blocks found (AI stub detection)
+ *   1. Navigation-only — no assertions at all
+ *   2. Weak assertions only — toBeTruthy(), .to.exist alone
+ *   3. Missing AC traceability — no // Jira: header comment
  *   4. No real assertion — only console.log() or expect(true).toBe(true)
  *   5. Missing observability — Playwright files must have console.log()
  *   6. Missing observability — Cypress files must have cy.log()
+ *   7. Missing AC-level comment — each test() / it() must have // AC-N: above it
+ *   8. No expect() anywhere — file-level assertion check (ALLOW_MISSING_ASSERT=true to override)
  *
- * Supports:
- *   - Playwright: .spec.ts  (expect() assertions)
- *   - Cypress:   .cy.ts    (cy.should() / assert / expect assertions)
+ * Overrides (all default false in strict mode):
+ *   ALLOW_MISSING_ASSERT=true — downgrade missing-assertion rule to warning
  *
  * Usage:
  *   node scripts/validate-test-quality.js
@@ -25,6 +27,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const E    = require('./enforcement-config');
 
 // ---------------------------------------------------------------------------
 // Directories to scan
@@ -101,6 +104,13 @@ function checkPlaywrightFile(filePath) {
   const src      = fs.readFileSync(filePath, 'utf8');
   const filename = path.basename(filePath);
 
+  // Rule 0: Empty / stub file — must contain at least one test() block              (R7)
+  if (!/\btest\s*\(/.test(src)) {
+    addViolation(filePath, 'EMPTY_FILE',
+      'No test() blocks found. This file is empty or a stub. ' +
+      'Add at least one test() block or move the file to notimplemented/.');
+  }
+
   // Rule 1: AC traceability
   if (!JIRA_HEADER_RE.test(src)) {
     addViolation(filePath, 'MISSING_AC_TRACEABILITY',
@@ -155,11 +165,29 @@ function checkPlaywrightFile(filePath) {
       }
     }
   }
+
+  // Rule 8: File-level assertion gate — must contain at least one expect() anywhere (R6)
+  if (!PW_HAS_EXPECT_RE.test(src)) {
+    if (E.ALLOW_MISSING_ASSERT) {
+      console.warn(`[quality] WARN (ALLOW_MISSING_ASSERT=true): ${path.relative(process.cwd(), filePath)} has no expect() calls.`);
+    } else {
+      addViolation(filePath, 'NO_EXPECT_IN_FILE',
+        'File contains no expect() calls at all. A valid test file must have at least one assertion. ' +
+        'AI-generated stubs with no assertions are rejected. Set ALLOW_MISSING_ASSERT=true ONLY as a temporary override.');
+    }
+  }
 }
 
 function checkCypressFile(filePath) {
   const src      = fs.readFileSync(filePath, 'utf8');
   const filename = path.basename(filePath);
+
+  // Rule 0: Empty / stub file — must contain at least one it() block               (R7)
+  if (!/\bit\s*\(/.test(src)) {
+    addViolation(filePath, 'EMPTY_FILE',
+      'No it() blocks found. This file is empty or a stub. ' +
+      'Add at least one it() block or move the file to notimplemented/.');
+  }
 
   // Rule 1: AC traceability
   if (!JIRA_HEADER_RE.test(src)) {
@@ -212,6 +240,17 @@ function checkCypressFile(filePath) {
           `Test "${block.name}" is missing a "// AC-N:" traceability comment. ` +
           'Add "// AC-1: <exact AC text from Jira>" immediately before each it().');
       }
+    }
+  }
+
+  // Rule 8b: File-level assertion gate — must use cy.should() / expect() at least once (R6)
+  if (!CY_HAS_SHOULD_RE.test(src)) {
+    if (E.ALLOW_MISSING_ASSERT) {
+      console.warn(`[quality] WARN (ALLOW_MISSING_ASSERT=true): ${path.relative(process.cwd(), filePath)} has no assertions.`);
+    } else {
+      addViolation(filePath, 'NO_EXPECT_IN_FILE',
+        'File contains no assertions (no cy.should(), assert, or expect()). ' +
+        'A valid test file must assert something. Set ALLOW_MISSING_ASSERT=true ONLY as a temporary override.');
     }
   }
 }

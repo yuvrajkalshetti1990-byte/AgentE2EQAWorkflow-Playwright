@@ -48,6 +48,17 @@ any browser is launched — and the pipeline will not proceed.
 1. Does NOT have a `// Jira: SCRUM-XX` header at the top
 2. Does NOT contain at least one `console.log(` call
 3. Uses `.fill('standard_user')` or `.fill('secret_sauce')` as a string literal
+4. Contains raw `page.locator()` / `page.getByRole()` ACTION calls (`.click()`, `.fill()`, `.type()`, `.check()`, `.hover()`) outside a Page Object — all selectors and actions MUST go in POM classes under `qa-framework/frameworks/playwright/pages/`
+5. Contains a `test()` block with zero `expect()` calls — every test must assert something
+6. Uses `page.goto('https://...')` with a hardcoded absolute URL — use relative paths (e.g. `page.goto('/')`) and let `baseURL` in `playwright.config.ts` resolve the host
+7. Uses `test.skip()` or `test.fixme()` without a comment explaining the reason — always add `// @skip-reason: <explanation>`
+
+**POM Rule — what it means in practice:**
+- Create or extend a Page Object class (e.g. `CheckoutPage`, `InventoryPage`) for every page/component
+- Export selector constants as `readonly` class properties, not inline strings in the spec
+- Expose action methods (e.g. `clickCheckout()`, `fillInfo()`) and assertion methods (e.g. `assertPageLoaded()`)
+- In the spec file, only call POM methods — never `page.locator(...)` for actions
+- `expect(page.locator(...))` for pure assertions in the spec is allowed (locator string via POM constant is preferred)
 
 This means the rules below are not guidelines — they are enforced at the system level.
 

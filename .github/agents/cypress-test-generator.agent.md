@@ -39,6 +39,12 @@ any browser is launched — and the pipeline will not proceed.
 1. Does NOT have a `// Jira: SCRUM-XX` header at the top
 2. Does NOT contain at least one `cy.log(` call
 3. Uses `.type('standard_user')` or `.type('secret_sauce')` as a string literal
+4. Uses `cy.visit()` directly — always use `cy.safeVisit()` (CI lint enforced)
+5. Uses `cy.request()` directly — always use `cy.apiRequest()` (CI lint enforced)
+6. Contains an `it()` block with zero `cy.should()` / `expect()` / `.should(` assertions — every test must assert something
+7. Uses `it.skip()` or `xit()` without a comment explaining the reason — always add `// @skip-reason: <explanation>`
+8. Uses `cy.fixture()` or `.selectFile('cypress/fixtures/...')` without `// @requiredFixtures: [...]` metadata at the top
+9. Uses a hardcoded absolute URL in `cy.safeVisit()` — use relative paths (e.g. `cy.safeVisit('/inventory.html')`) and let `baseUrl` in `cypress.config.ts` resolve the host
 
 This means the rules below are not guidelines — they are enforced at the system level.
 

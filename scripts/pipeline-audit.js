@@ -357,6 +357,283 @@ check('C36', 'post-results-to-jira.yml PR creation also gated on has_counts + fa
   return `has_counts guard appears ${hasCountsMatches}x and failed==0 guard appears ${failedMatches}x — Done and PR both gated`;
 });
 
+// ── New checks for violations fixed in April 2026 audit ───────────────────
+
+check('C37', 'Post-generation quality gate in orchestrator (V1 fix)', () => {
+  const orch = requireFile('tools/orchestrator.js');
+  // Quality gate must appear at least twice: once as pre-flight before the try block,
+  // and once after runGenerator() (post-generation gate)
+  const gateMatches = (orch.match(/runQualityGate\s*\(\s*\)/g) || []).length;
+  if (gateMatches < 2) throw new Error(
+    `runQualityGate() appears only ${gateMatches} time(s) — must appear both pre-flight AND post-generation`
+  );
+  // Post-generation gate must appear after the generator block
+  const generatorIdx   = orch.indexOf('testsGenerated: true');
+  const postGateIdx    = orch.indexOf('Post-generation quality gate');
+  if (postGateIdx === -1) throw new Error('Post-generation quality gate comment not found in orchestrator.js');
+  if (postGateIdx < generatorIdx) throw new Error('Post-generation quality gate appears BEFORE the generator block');
+  return `runQualityGate() called ${gateMatches}x — pre-flight + post-generation both enforced`;
+});
+
+check('C38', 'Dual-label FRAMEWORK_AMBIGUOUS guard in jira-ready-for-qa.yml (V2 fix)', () => {
+  const wf = requireFile('.github/workflows/jira-ready-for-qa.yml');
+  requirePattern(wf, /FRAMEWORK_AMBIGUOUS/, 'jira-ready-for-qa.yml');
+  requirePattern(wf, /HAS_CYPRESS.*HAS_PLAYWRIGHT|HAS_PLAYWRIGHT.*HAS_CYPRESS/, 'jira-ready-for-qa.yml');
+  requirePattern(wf, /both.*cypress.*playwright|cypress.*playwright.*labels/i, 'jira-ready-for-qa.yml');
+  // Must exit 1 on ambiguous labels
+  const ambigIdx = wf.indexOf('FRAMEWORK_AMBIGUOUS');
+  const exit1Idx = wf.indexOf('exit 1', ambigIdx);
+  if (exit1Idx === -1 || exit1Idx - ambigIdx > 300) {
+    throw new Error('No exit 1 found within 300 chars of FRAMEWORK_AMBIGUOUS — guard is not blocking');
+  }
+  return 'FRAMEWORK_AMBIGUOUS guard exits 1 on dual cypress+playwright labels';
+});
+
+check('C39', 'AC_GATE_STRICT mechanism in jira-ready-for-qa.yml (V3 fix)', () => {
+  const wf = requireFile('.github/workflows/jira-ready-for-qa.yml');
+  requirePattern(wf, /AC_GATE_STRICT/, 'jira-ready-for-qa.yml');
+  requirePattern(wf, /Strict gate.*fail when OpenAI|strict mode/i, 'jira-ready-for-qa.yml');
+  requirePattern(wf, /steps\.ac_review\.outputs\.SCORE.*==.*'N\/A'/, 'jira-ready-for-qa.yml');
+  return 'AC_GATE_STRICT env var wired — OpenAI-skip failures can be promoted to exit 1';
+});
+
+check('C40', 'Jira Done transition failure fails loudly (V4 fix)', () => {
+  const wf = requireFile('.github/workflows/post-results-to-jira.yml');
+  // Must not just warn on non-204/400/409 — must exit 1
+  requirePattern(wf, /::error::Jira Done transition failed/, 'post-results-to-jira.yml');
+  // Verify the else branch now exits 1 instead of just warning
+  const errorIdx = wf.indexOf('::error::Jira Done transition failed');
+  const exit1Idx = wf.indexOf('exit 1', errorIdx);
+  if (exit1Idx === -1 || exit1Idx - errorIdx > 250) {
+    throw new Error('exit 1 not found after error annotation — transition failure is still silent');
+  }
+  // Verify 400/409 (already-in-state) are still handled gracefully (not as errors)
+  requirePattern(wf, /400.*409|409.*400/, 'post-results-to-jira.yml — 400/409 graceful handling missing');
+  return 'exit 1 on Jira transition non-204/400/409; 400/409 handled gracefully';
+});
+
+check('C41', 'lint-resilience.js exists and wired in cypress.yml before test execution', () => {
+  const src = requireFile('scripts/lint-resilience.js');
+  requirePattern(src, /process\.exit\s*\(\s*1\s*\)/, 'lint-resilience.js');
+  const wf = requireFile('.github/workflows/cypress.yml');
+  requirePattern(wf, /lint-resilience\.js/, 'cypress.yml');
+  // Must appear before npx cypress run
+  const lintIdx = wf.indexOf('lint-resilience.js');
+  const runIdx  = wf.indexOf('npx cypress run');
+  if (lintIdx === -1) throw new Error('lint-resilience.js not referenced in cypress.yml');
+  if (runIdx  === -1) throw new Error('npx cypress run not found in cypress.yml');
+  if (lintIdx > runIdx) throw new Error('lint-resilience.js appears AFTER npx cypress run in cypress.yml');
+  return 'lint-resilience.js exists + wired in cypress.yml before npx cypress run';
+});
+
+// ---------------------------------------------------------------------------
+// Hardening checks — April 2026
+// ---------------------------------------------------------------------------
+
+check('C42', 'preflight-env.js exists and fails loudly on critical violations', () => {
+  const src = requireFile('scripts/preflight-env.js');
+  requirePattern(src, /process\.exit\s*\(\s*1\s*\)/, 'preflight-env.js — exit(1)');
+  requirePattern(src, /REQUIRE_BASE_URL|BASE_URL/, 'preflight-env.js — BASE_URL check');
+  requirePattern(src, /ENV SAFETY VIOLATION|EXPECTED_HOST/, 'preflight-env.js — host mismatch guard');
+  return 'preflight-env.js exists with BASE_URL + host-mismatch + exit(1)';
+});
+
+check('C43', 'preflight-env.js wired in playwright.yml before test execution', () => {
+  const wf = requireFile('.github/workflows/playwright.yml');
+  const preIdx = wf.indexOf('preflight-env.js');
+  const runIdx = wf.indexOf('npx playwright test');
+  if (preIdx === -1) throw new Error('preflight-env.js not referenced in playwright.yml');
+  if (runIdx  === -1) throw new Error('npx playwright test not found in playwright.yml');
+  if (preIdx  > runIdx) throw new Error('preflight-env.js appears AFTER test execution in playwright.yml');
+  return 'preflight-env.js precedes npx playwright test';
+});
+
+check('C44', 'preflight-env.js wired in cypress.yml before test execution', () => {
+  const wf = requireFile('.github/workflows/cypress.yml');
+  const preIdx = wf.indexOf('preflight-env.js');
+  const runIdx = wf.indexOf('npx cypress run');
+  if (preIdx === -1) throw new Error('preflight-env.js not referenced in cypress.yml');
+  if (runIdx  === -1) throw new Error('npx cypress run not found in cypress.yml');
+  if (preIdx  > runIdx) throw new Error('preflight-env.js appears AFTER cypress run in cypress.yml');
+  return 'preflight-env.js precedes npx cypress run';
+});
+
+check('C45', 'global-setup.ts exists for Playwright runtime env validation', () => {
+  const src = requireFile('qa-framework/frameworks/playwright/global-setup.ts');
+  requirePattern(src, /ENV VALIDATION|ENV MISMATCH/, 'global-setup.ts — validation messages');
+  requirePattern(src, /throw new Error/, 'global-setup.ts — throws on failure');
+  requirePattern(src, /BASE_URL/, 'global-setup.ts — uses BASE_URL');
+  return 'global-setup.ts validates BASE_URL reachability + host match';
+});
+
+check('C46', 'global-setup.ts wired in playwright.config.ts', () => {
+  const src = requireFile('qa-framework/frameworks/playwright/playwright.config.ts');
+  requirePattern(src, /globalSetup.*global-setup/, 'playwright.config.ts — globalSetup');
+  return 'globalSetup: \'./global-setup.ts\' present in playwright.config.ts';
+});
+
+check('C47', 'validate-ac-coverage.js exists with pass/fail modes', () => {
+  const src = requireFile('scripts/validate-ac-coverage.js');
+  requirePattern(src, /ALLOW_PARTIAL_AC|ALLOW_PARTIAL/, 'validate-ac-coverage.js — allow flag');
+  requirePattern(src, /process\.exit\s*\(\s*1\s*\)/, 'validate-ac-coverage.js — exit(1)');
+  requirePattern(src, /notimplemented/i, 'validate-ac-coverage.js — scans notimplemented/');
+  return 'validate-ac-coverage.js with ALLOW_PARTIAL_AC override + notimplemented scan + exit(1)';
+});
+
+check('C48', 'validate-ac-coverage.js wired in playwright.yml before test execution', () => {
+  const wf = requireFile('.github/workflows/playwright.yml');
+  const acIdx  = wf.indexOf('validate-ac-coverage.js');
+  const runIdx = wf.indexOf('npx playwright test');
+  if (acIdx  === -1) throw new Error('validate-ac-coverage.js not referenced in playwright.yml');
+  if (runIdx === -1) throw new Error('npx playwright test not found in playwright.yml');
+  if (acIdx  > runIdx) throw new Error('validate-ac-coverage.js appears AFTER test execution');
+  return 'validate-ac-coverage.js precedes npx playwright test';
+});
+
+check('C49', 'check-flaky-threshold.js exists with configurable threshold', () => {
+  const src = requireFile('scripts/check-flaky-threshold.js');
+  requirePattern(src, /FLAKY_FAIL_THRESHOLD/, 'check-flaky-threshold.js — threshold config');
+  requirePattern(src, /ALLOW_FLAKY/, 'check-flaky-threshold.js — allow flag');
+  requirePattern(src, /process\.exit\s*\(\s*1\s*\)/, 'check-flaky-threshold.js — exit(1)');
+  return 'check-flaky-threshold.js with FLAKY_FAIL_THRESHOLD + ALLOW_FLAKY override + exit(1)';
+});
+
+check('C50', 'check-flaky-threshold.js wired in playwright.yml after test run', () => {
+  const wf = requireFile('.github/workflows/playwright.yml');
+  const runIdx   = wf.indexOf('npx playwright test');
+  const flakyIdx = wf.indexOf('check-flaky-threshold.js');
+  if (flakyIdx === -1) throw new Error('check-flaky-threshold.js not referenced in playwright.yml');
+  if (runIdx   === -1) throw new Error('npx playwright test not found in playwright.yml');
+  if (flakyIdx < runIdx) throw new Error('check-flaky-threshold.js appears BEFORE test execution — must run after');
+  return 'check-flaky-threshold.js follows npx playwright test';
+});
+
+check('C51', 'check-framework-parity.js exists with strict mode', () => {
+  const src = requireFile('scripts/check-framework-parity.js');
+  requirePattern(src, /PARITY_STRICT/, 'check-framework-parity.js — strict mode');
+  requirePattern(src, /process\.exit\s*\(\s*1\s*\)/, 'check-framework-parity.js — exit(1)');
+  return 'check-framework-parity.js with PARITY_STRICT + exit(1)';
+});
+
+check('C52', 'POM enforcement gate in validate-playwright-tests.js', () => {
+  const src = requireFile('scripts/validate-playwright-tests.js');
+  requirePattern(src, /HAS_POM_IMPORT_RE|POM_ENFORCE/, 'validate-playwright-tests.js — POM gate');
+  requirePattern(src, /pages\//, 'validate-playwright-tests.js — pages/ import check');
+  return 'POM enforcement gate present with POM_ENFORCE=strict mode';
+});
+
+check('C53', 'generate-report.js shows UNSTABLE status for flaky tests (R9)', () => {
+  const src = requireFile('scripts/generate-report.js');
+  requirePattern(src, /UNSTABLE/, 'generate-report.js — UNSTABLE status');
+  requirePattern(src, /computeOverallStatus|FLAKY.*flaky|flaky.*FLAKY/i, 'generate-report.js — flaky detection');
+  requirePattern(src, /Flaky \(passed on retry\)|FLAKY PASS/i, 'generate-report.js — flaky row label');
+  return 'UNSTABLE status + flaky row label in report';
+});
+
+check('C54', 'EMPTY_FILE rule in validate-test-quality.js (R7)', () => {
+  const src = requireFile('scripts/validate-test-quality.js');
+  requirePattern(src, /EMPTY_FILE/, 'validate-test-quality.js — EMPTY_FILE rule');
+  requirePattern(src, /No test\(\) blocks|No it\(\) blocks/, 'validate-test-quality.js — empty file message');
+  return 'EMPTY_FILE rule blocks empty/stub test files';
+});
+
+// ---------------------------------------------------------------------------
+// Strict enforcement checks — added for ENFORCEMENT UPGRADE
+// ---------------------------------------------------------------------------
+
+check('C55', 'enforcement-config.js exists as central governance registry', () => {
+  const src = requireFile('scripts/enforcement-config.js');
+  requirePattern(src, /STRICT_MODE/, 'enforcement-config.js — STRICT_MODE master switch');
+  requirePattern(src, /ALLOW_PARTIAL_AC/, 'enforcement-config.js — ALLOW_PARTIAL_AC flag');
+  requirePattern(src, /ALLOW_FLAKY/, 'enforcement-config.js — ALLOW_FLAKY flag');
+  requirePattern(src, /ALLOW_POM_BYPASS/, 'enforcement-config.js — ALLOW_POM_BYPASS flag');
+  requirePattern(src, /UNSTABLE_FAILS_PIPELINE/, 'enforcement-config.js — UNSTABLE_FAILS_PIPELINE');
+  requirePattern(src, /module\.exports/, 'enforcement-config.js — exports config object');
+  return 'enforcement-config.js with STRICT_MODE, all allow-flags, exports';
+});
+
+check('C56', 'validate-ac-coverage.js uses enforcement-config + fails by default (no warn escapes)', () => {
+  const src = requireFile('scripts/validate-ac-coverage.js');
+  requirePattern(src, /enforcement-config/, 'validate-ac-coverage.js — requires enforcement-config');
+  requirePattern(src, /ALLOW_PARTIAL_AC|ALLOW_PARTIAL/, 'validate-ac-coverage.js — allow flag');
+  requirePattern(src, /process\.exit\s*\(\s*1\s*\)/, 'validate-ac-coverage.js — exit(1) present');
+  // Must NOT have AC_GATE_MODE=warn as default (old pattern — must be gone)
+  if (/AC_GATE_MODE.*='warn'|AC_GATE_MODE.*warn.*default/i.test(src)) {
+    throw new Error('Old AC_GATE_MODE=warn default found — must be replaced with ALLOW_PARTIAL_AC enforcement');
+  }
+  return 'Uses enforcement-config + ALLOW_PARTIAL_AC; old AC_GATE_MODE=warn removed';
+});
+
+check('C57', 'validate-playwright-tests.js uses enforcement-config + POM strict by default', () => {
+  const src = requireFile('scripts/validate-playwright-tests.js');
+  requirePattern(src, /enforcement-config/, 'validate-playwright-tests.js — requires enforcement-config');
+  requirePattern(src, /ALLOW_POM_BYPASS/, 'validate-playwright-tests.js — ALLOW_POM_BYPASS flag');
+  requirePattern(src, /RAW_LOCATOR_RE/, 'validate-playwright-tests.js — raw locator detection');
+  // Must NOT default to warn (old POM_ENFORCE=warn pattern must be gone)
+  if (/POM_ENFORCE\s*=\s*process\.env\.POM_ENFORCE\s*\|\|\s*'warn'/.test(src)) {
+    throw new Error('Old POM_ENFORCE=warn default still present — must be replaced with ALLOW_POM_BYPASS');
+  }
+  return 'enforcement-config + ALLOW_POM_BYPASS + raw-locator detection; old warn mode removed';
+});
+
+check('C58', 'check-flaky-threshold.js uses enforcement-config + ALLOW_FLAKY escape hatch', () => {
+  const src = requireFile('scripts/check-flaky-threshold.js');
+  requirePattern(src, /enforcement-config/, 'check-flaky-threshold.js — requires enforcement-config');
+  requirePattern(src, /ALLOW_FLAKY/, 'check-flaky-threshold.js — ALLOW_FLAKY flag');
+  // Must NOT have FLAKY_FAIL_MODE variable reference (old pattern)
+  if (/const failMode\s*=\s*process\.env\.FLAKY_FAIL_MODE/.test(src)) {
+    throw new Error('Old FLAKY_FAIL_MODE=unstable escape still present — must use ALLOW_FLAKY from enforcement-config');
+  }
+  return 'enforcement-config + ALLOW_FLAKY; old FLAKY_FAIL_MODE=unstable bypass removed';
+});
+
+check('C59', 'generate-report.js exits non-zero on FAIL / BLOCKED / UNSTABLE', () => {
+  const src = requireFile('scripts/generate-report.js');
+  requirePattern(src, /enforcement-config/, 'generate-report.js — requires enforcement-config');
+  requirePattern(src, /UNSTABLE_FAILS_PIPELINE/, 'generate-report.js — UNSTABLE_FAILS_PIPELINE check');
+  requirePattern(src, /process\.exit\s*\(\s*1\s*\)/, 'generate-report.js — exits 1 on failure');
+  requirePattern(src, /hasBocked|🚫 BLOCKED/, 'generate-report.js — BLOCKED detection');
+  requirePattern(src, /pipeline status.*FAIL|pipeline status.*BLOCKED/i, 'generate-report.js — pipeline status log');
+  return 'generate-report.js exits 1 on FAIL, BLOCKED, or UNSTABLE (UNSTABLE_FAILS_PIPELINE=true)';
+});
+
+check('C60', 'validate-ac-execution.js exists — AC→Test→Execution mapping gate', () => {
+  const src = requireFile('scripts/validate-ac-execution.js');
+  requirePattern(src, /enforcement-config/, 'validate-ac-execution.js — requires enforcement-config');
+  requirePattern(src, /AC NOT EXECUTED/, 'validate-ac-execution.js — phantom coverage detection');
+  requirePattern(src, /SKIPPED WITHOUT REASON/, 'validate-ac-execution.js — skip detection');
+  requirePattern(src, /process\.exit\s*\(\s*1\s*\)/, 'validate-ac-execution.js — exit(1)');
+  return 'validate-ac-execution.js maps AC→spec→results and fails on phantom/skipped ACs';
+});
+
+check('C61', 'validate-state-integrity.js exists — state consistency gate', () => {
+  const src = requireFile('scripts/validate-state-integrity.js');
+  requirePattern(src, /enforcement-config/, 'validate-state-integrity.js — requires enforcement-config');
+  requirePattern(src, /phantom success|Phantom success/i, 'validate-state-integrity.js — phantom success detection');
+  requirePattern(src, /healerExhausted.*testsPassed|testsPassed.*healerExhausted/, 'validate-state-integrity.js — inconsistent state');
+  requirePattern(src, /process\.exit\s*\(\s*1\s*\)/, 'validate-state-integrity.js — exit(1)');
+  return 'validate-state-integrity.js detects phantom success, healer exhaustion, and duplicate PRs';
+});
+
+check('C62', 'validate-ac-execution.js wired in playwright.yml after test run', () => {
+  const wf = requireFile('.github/workflows/playwright.yml');
+  const runIdx = wf.indexOf('npx playwright test');
+  const acExecIdx = wf.indexOf('validate-ac-execution.js');
+  if (acExecIdx === -1) throw new Error('validate-ac-execution.js not referenced in playwright.yml');
+  if (runIdx    === -1) throw new Error('npx playwright test not found in playwright.yml');
+  if (acExecIdx <  runIdx) throw new Error('validate-ac-execution.js appears BEFORE test execution — must run after');
+  return 'validate-ac-execution.js follows npx playwright test';
+});
+
+check('C63', 'preflight-env.js checks hardcoded URLs in spec files (R9)', () => {
+  const src = requireFile('scripts/preflight-env.js');
+  requirePattern(src, /HARDCODED_URL_RE|Hardcoded URL|hardcoded.*url/i, 'preflight-env.js — URL scan');
+  requirePattern(src, /scanForHardcodedUrls/, 'preflight-env.js — scan function');
+  requirePattern(src, /playwright.config.ts.*not found|cypress.config.ts.*not found|baseURL.*missing/i,
+    'preflight-env.js — framework config integrity check');
+  return 'preflight-env.js scans for hardcoded URLs and validates framework config files';
+});
+
 // ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------

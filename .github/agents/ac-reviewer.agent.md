@@ -118,3 +118,30 @@ Post this as a Jira comment using `addCommentToJiraIssue`:
 - If an AC is genuinely not automatable (e.g. physical hardware, email inbox), label it `MANUAL ONLY` and explain why
 - If ACs are missing common cases (missing error paths, missing empty-state handling), flag them as gaps and propose new ACs
 - Be constructive — the goal is to help the team, not to reject the story
+
+---
+
+## STRICT MODE — AC Scoring Affects Pipeline Gates
+
+Your review directly determines whether the pipeline can proceed. The following CI gates depend on your output:
+
+- `validate-ac-coverage.js` — FAILS if any AC is not implemented and `ALLOW_PARTIAL_AC` is not set to `true`
+- `validate-ac-execution.js` — FAILS if an AC has a spec file but no matching execution result in the results JSON
+- `generate-report.js` — exits 1 if stubs are in `notimplemented/` without explicit override
+
+**Labelling requirements that affect CI:**
+- ACs labelled `MANUAL ONLY` or `NOT AUTOMATABLE` → must become `notimplemented/` stubs or they block `validate-ac-coverage.js`
+- ACs labelled `REWRITE` → block test generation; the story MUST be refined before `@playwright-test-generator` or `@cypress-test-generator` is invoked
+- ACs labelled `AUTOMATE` or `IMPROVE` → must produce a spec file; if none is generated, AC coverage gate fails
+
+**In your Jira comment, always include a section:**
+```
+### Automation Blockers
+| AC | Label | CI impact | Required action |
+|----|-------|-----------|----------------|
+| AC-2 | REWRITE | BLOCKED — test generation cannot proceed | Rewrite AC before invoking generator |
+| AC-4 | MANUAL ONLY | notimplemented/ stub required | Generator will create stub; no pipeline block |
+```
+
+When ALL ACs are `AUTOMATE` and none are `REWRITE`, explicitly state:
+> ✅ Story is automation-ready. Invoke `@playwright-test-planner` or `@cypress-test-planner` to proceed.

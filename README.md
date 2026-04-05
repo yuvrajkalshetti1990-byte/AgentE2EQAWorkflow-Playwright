@@ -281,7 +281,7 @@ All run **before** `npx playwright test` / `npx cypress run` in CI — failure e
 | Rule | Behaviour |
 |------|-----------|
 | **Dual framework labels** | `cypress` + `playwright` both present → immediate `FRAMEWORK_AMBIGUOUS` error |
-| **Quality gate** | `validate-test-quality.js` runs **blocking** (no try/catch) before any test execution — failure hard-exits the pipeline |
+| **Quality gate** | `validate-test-quality.js` runs **blocking** (no try/catch) before any test execution AND again post-generation — failure hard-exits the pipeline at either stage |
 | **Healer scope** | Healer only patches files explicitly named in the failure output — passing tests are never touched |
 | **Healer max retries** | `HEALER_MAX_RETRIES` (default: 2) — after exhausting retries, file is moved to `notimplemented/` |
 | **Healer context** | Healer receives real stdout+stderr from the failed test run — not an empty string |
@@ -294,6 +294,7 @@ All run **before** `npx playwright test` / `npx cypress run` in CI — failure e
 | **Dual pipeline guard** | `qa-automation.yml` orchestrator checks if `auto/test-{key}` branch already exists — if yes, exits 0 (yields to primary Jira pipeline) |
 | **Concurrency guard** | `qa-automation.yml` has a `concurrency:` group scoped to issue number — prevents parallel runs for same issue |
 | **SCRUM-16 exemption** | Learning/exploration tests under `SCRUM-16-*` are exempt from AC traceability rules |
+| **AC_GATE_STRICT** | Set repo variable `AC_GATE_STRICT=true` (Settings → Variables) to promote OpenAI API unavailability to a hard pipeline block — default `false` allows soft-fail with `IMPROVE` verdict |
 
 ### Pipeline audit
 
@@ -303,20 +304,25 @@ Run at any time to verify all components are wired:
 node scripts/pipeline-audit.js
 ```
 
-Currently checks **36 conditions (C01–C36)**. Exits 1 if any fail.
+Currently checks **41 conditions (C01–C41)**. Exits 1 if any fail.
 
 > C31 verifies `scripts/validate-playwright-data.js` exists and has blocking exit(1).  
 > C32 verifies it runs before `npx playwright test` in `playwright.yml`.  
 > C33 verifies `jira-ready-for-qa.yml` transitions to In QA (id=41).  
 > C34 verifies REWRITE verdict triggers exit 1.  
 > C35 verifies `post-results-to-jira.yml` requires `has_counts==true` AND `failed==0` before Done.  
-> C36 verifies both the Done transition AND the PR creation step are guarded by those conditions.
+> C36 verifies both the Done transition AND the PR creation step are guarded by those conditions.  
+> C37 verifies quality gate runs both pre-flight AND post-generation in the orchestrator.  
+> C38 verifies dual-label `FRAMEWORK_AMBIGUOUS` guard in `jira-ready-for-qa.yml` exits 1.  
+> C39 verifies `AC_GATE_STRICT` mechanism is wired in `jira-ready-for-qa.yml`.  
+> C40 verifies Jira Done transition failure fails loudly (exit 1, not just a warning).  
+> C41 verifies `lint-resilience.js` is wired in `cypress.yml` before test execution.
 
 ---
 
 
 
-State is tracked per branch as `qa-framework/pipeline-state/{issue-key}.state.json` (committed to the feature branch).
+State is tracked per branch as `qa-framework/state/{issue-key}.state.json` (committed to the feature branch).
 
 Key idempotency guarantees:
 - **Branch re-creation**: detected by `git ls-remote --exit-code` — reuses existing branch
@@ -400,6 +406,7 @@ E2E-AgenticWorkflow/
 │   │   ├── playwright.yml                    # CI — Playwright tests + report
 │   │   ├── cypress.yml                       # CI — Cypress tests + report
 │   │   ├── post-results-to-jira.yml          # CI post-processor (comment + Done + PR)
+│   │   ├── qa-automation.yml                 # Standalone pipeline (GitHub issue trigger)
 │   │   └── copilot-setup-steps.yml           # Copilot agent env pre-install
 │   └── copilot-instructions.md               # Global agent routing rules
 │
@@ -442,10 +449,16 @@ E2E-AgenticWorkflow/
 │   ├── enrich-ac.js                          # CLI: AC enrichment (no build needed)
 │   ├── generate-report.js                    # CLI: test execution report generator
 │   ├── state.js                              # CLI: pipeline state read/write
+│   ├── pipeline-audit.js                     # CLI: 41-check pipeline integrity audit
+│   ├── validate-test-quality.js              # Assertions, AC traceability, observability gate
+│   ├── validate-playwright-data.js           # Pre-flight data file existence gate
 │   ├── validate-cypress-tests.js             # Cypress compliance assertions
 │   ├── validate-playwright-tests.js          # Playwright compliance assertions
 │   ├── validate-fixtures.js                  # Fixture reference validation
 │   └── lint-resilience.js                    # Raw cy.visit/cy.request lint
+│
+├── tools/
+│   └── orchestrator.js                       # Standalone end-to-end pipeline orchestrator
 │
 ├── package.json                              # Single node_modules for all frameworks
 └── README.md
@@ -481,7 +494,7 @@ Example: `saucedemo-cy-hp-01-single-item-checkout.cy.ts`
 | GitHub issue already exists | Existing issue reused — no duplicate created |
 | PR already exists | Existing PR reused — no duplicate created |
 | CI tests fail | Jira gets a FAILED comment, NOT transitioned to Done, NO PR opened |
-| CI passes but no JSON artifact | Jira gets PASSED comment, Done transition uses workflow conclusion |
+| CI passes but no JSON artifact | Jira gets PASSED comment, Done transition **blocked** (`has_counts==false`) — story stays In QA, no PR created |
 | No specs found in Cypress | Warning logged, workflow marked neutral, no Done transition |
 | Report generation fails | Warning logged, CI continues — report artifact skipped |
 
