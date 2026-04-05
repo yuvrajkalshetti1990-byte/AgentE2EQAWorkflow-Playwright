@@ -72,6 +72,27 @@ const BRANCH_NAME = `auto/test-${cfg.issueKey.toLowerCase()}`;
 const STATE_DIR   = path.resolve(process.cwd(), 'qa-framework', 'state');
 const STATE_FILE  = path.join(STATE_DIR, `${cfg.issueKey.toLowerCase()}.state.json`);
 const REPORT_DIR  = path.resolve(process.cwd(), 'qa-framework', 'reports');
+const CI_RULES_DIR = path.resolve(process.cwd(), 'config', 'ci-rules');
+
+// ---------------------------------------------------------------------------
+// CI Rules — load from centralized config (shared with agent front matter)
+// ---------------------------------------------------------------------------
+
+function loadCiRules(framework) {
+  const rulesFile = path.join(CI_RULES_DIR, `${framework}-rules.json`);
+  try {
+    const rules = JSON.parse(fs.readFileSync(rulesFile, 'utf8'));
+    info('CI-RULES', `Loaded CI rules for ${framework} from ${path.relative(process.cwd(), rulesFile)}`);
+    return rules;
+  } catch (e) {
+    warn('CI-RULES', `Could not load CI rules for ${framework}: ${e.message} — proceeding with empty rules`);
+    return {
+      framework,
+      planner:   { forbiddenInPlan: [] },
+      generator: { mandatoryRules: [], forbiddenPatterns: [], requiredPatterns: [] },
+    };
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Logging
@@ -295,9 +316,17 @@ function runQualityGate() {
 async function runPlanner(framework, issueKey, summary, description) {
   info('PLANNER', `Generating test plan for ${issueKey} using ${framework}`);
 
+  // Load framework-specific CI rules
+  const ciRules = loadCiRules(framework);
+
+  // Build framework-specific system prompt (embedded CI rules)
   const sysPrompt = framework === 'cypress'
-    ? CYPRESS_PLANNER_SYSTEM_PROMPT
-    : PLAYWRIGHT_PLANNER_SYSTEM_PROMPT;
+    ? buildCypressPlannerPrompt(ciRules)
+    : buildPlaywrightPlannerPrompt(ciRules);
+
+  // Log what we are sending to the LLM so CI output is fully traceable
+  info('PLANNER', `Framework: ${framework} | System prompt: ${framework === 'cypress' ? 'CYPRESS_PLANNER' : 'PLAYWRIGHT_PLANNER'} | CI rules: ${(ciRules.generator?.ciGates || []).join(', ') || 'none'}`);
+  info('PLANNER', `Forbidden plan patterns: ${(ciRules.planner?.forbiddenInPlan || []).join(', ') || 'none'}`);
 
   const userPrompt = `Jira Issue: ${issueKey}
 Summary: ${summary}
@@ -305,20 +334,8 @@ Description / Acceptance Criteria:
 ${description || '(No description provided)'}
 
 Generate a comprehensive, automatable test plan with happy-path, negative, and edge-case scenarios.
-Include step-by-step details and expected outcomes. Return JSON in this format:
-{
-  "testPlan": [
-    {
-      "id": "TC-01",
-      "title": "...",
-      "type": "happy-path|negative|edge-case",
-      "preconditions": "...",
-      "steps": ["step 1", "step 2"],
-      "expectedOutcome": "...",
-      "area": "auth|checkout|inventory|..."
-    }
-  ]
-}`;
+Include step-by-step details and expected outcomes using ONLY ${framework.toUpperCase()} patterns.
+AC numbering is required on every scenario (AC-1, AC-2, ...).`;
 
   const responseText = await callLLM(sysPrompt, userPrompt, 'PLANNER');
   const plan = extractJSON(responseText);
@@ -327,7 +344,12 @@ Include step-by-step details and expected outcomes. Return JSON in this format:
     throw new Error('Planner returned empty or invalid test plan');
   }
 
-  info('PLANNER', `Test plan contains ${plan.testPlan.length} scenario(s)`);
+  // ── Runtime drift validation ───────────────────────────────────────────
+  // Detect cross-framework contamination: the plan must declare the correct framework
+  // and must not contain vocabulary from the other framework.
+  validatePlannerOutput(framework, plan, responseText);
+
+  info('PLANNER', `Test plan contains ${plan.testPlan.length} scenario(s) | framework field: ${plan.framework || '(not set)'}`);
 
   // Persist plan
   const planDir  = path.join('qa-framework', 'frameworks', framework === 'cypress' ? 'cypress' : 'playwright', 'specs');
@@ -339,19 +361,151 @@ Include step-by-step details and expected outcomes. Return JSON in this format:
   return plan;
 }
 
-const PLAYWRIGHT_PLANNER_SYSTEM_PROMPT = `You are an expert Playwright test planner for web applications.
-Create detailed, automatable test plans. Focus on:
-- Functional correctness
-- User journey completeness
-- Edge case and negative scenario coverage
-Always return valid JSON.`;
+// ---------------------------------------------------------------------------
+// Planner system prompts — framework-specific (loaded with embedded CI rules)
+// ---------------------------------------------------------------------------
 
-const CYPRESS_PLANNER_SYSTEM_PROMPT = `You are an expert Cypress test planner for web applications.
-Create detailed, automatable test plans. Focus on:
-- Functional correctness
-- User journey completeness
-- Edge case and negative scenario coverage
-Always return valid JSON.`;
+function buildPlaywrightPlannerPrompt(ciRules) {
+  const forbidden = (ciRules.planner?.forbiddenInPlan || []).join(', ') || 'cy.visit(), cy.get(), .should(), describe(), it()';
+  const hints     = (ciRules.planner?.requiredSectionHints || []).map(h => `  - ${h}`).join('\n');
+  return `You are an expert PLAYWRIGHT test planner for web applications. You produce test plans that feed
+directly into the LLM Generator and are validated by strict CI gates before any test runs.
+
+# FRAMEWORK: PLAYWRIGHT — NOT Cypress
+Every scenario you produce will become a Playwright .spec.ts file. You MUST use Playwright vocabulary:
+- test() and expect() — NOT describe()/it() (those are Cypress)
+- async/await — NOT .then() chains
+- Page Object Model classes from qa-framework/frameworks/playwright/pages/
+- Relative URL paths for all navigation (e.g. navigate to /) — NEVER hardcode https://...
+- FORBIDDEN in your plan output: ${forbidden}
+
+# CI GATE REQUIREMENTS — YOUR PLAN MUST ENABLE THESE
+The generator output is validated by scripts/validate-playwright-tests.js. Ensure every scenario:
+1. Maps 1:1 to an AC number — prefix each with AC-1:, AC-2:, etc.
+2. Names the exact Page Object class to use (e.g. LoginPage, InventoryPage, CartPage, CheckoutPage)
+3. Uses only relative precondition URLs (never https://...)
+4. Marks non-UI ACs (email, DB, filesystem) as: **NOT AUTOMATABLE** — reason: <reason>
+5. Describes steps in Playwright terms: "click via LoginPage.clickLogin()" — NOT cy.contains(...)
+6. Includes at least one assertion hint per scenario (what expect() should check)
+7. Assigns a test area abbreviation for file naming (auth, checkout, inventory, cart, etc.)
+
+# PLAN SECTION HINTS
+Each scenario MUST provide:
+${hints || '  - Page Object class name\n  - Relative URL path\n  - AC reference\n  - POM method names in steps'}
+
+# OUTPUT FORMAT — MANDATORY
+Return ONLY valid JSON — no markdown, no code fences, no explanation:
+{
+  "framework": "playwright",
+  "testPlan": [
+    {
+      "id": "TC-01",
+      "acRef": "AC-1",
+      "title": "Descriptive test title",
+      "type": "happy-path|negative|edge-case",
+      "pageObject": "LoginPage",
+      "preconditions": "Navigate to /",
+      "steps": ["Call LoginPage.fillUsername(user)", "Call LoginPage.fillPassword(pass)", "Call LoginPage.clickLogin()"],
+      "expectedOutcome": "User is redirected to /inventory.html",
+      "assertionHint": "expect(page.url()).toContain('/inventory.html')",
+      "area": "auth",
+      "automatable": true
+    }
+  ]
+}`;
+}
+
+function buildCypressPlannerPrompt(ciRules) {
+  const forbidden = (ciRules.planner?.forbiddenInPlan || []).join(', ') || 'cy.visit(), cy.request(), page.goto, test(), expect()';
+  const hints     = (ciRules.planner?.requiredSectionHints || []).map(h => `  - ${h}`).join('\n');
+  const cmds      = (ciRules.planner?.customCommands || []).join(', ') || 'cy.login(), cy.safeVisit(), cy.apiRequest()';
+  return `You are an expert CYPRESS test planner for web applications. You produce test plans that feed
+directly into the LLM Generator and are validated by strict CI gates before any test runs.
+
+# FRAMEWORK: CYPRESS — NOT Playwright
+Every scenario you produce will become a Cypress .cy.ts file. You MUST use Cypress vocabulary:
+- describe() / it() structure — NOT test() (that is Playwright)
+- cy.safeVisit() for ALL navigation — cy.visit() is FORBIDDEN and CI-linted
+- cy.apiRequest() for ALL HTTP requests — cy.request() is FORBIDDEN and CI-linted
+- .should() for assertions — NOT expect() as the primary form
+- Custom commands available: ${cmds}
+- Selectors priority: [data-test] > id > name > ARIA role > stable class
+- Relative URL paths only (e.g. /) — NEVER cy.safeVisit('https://...')
+- FORBIDDEN in your plan output: ${forbidden}
+
+# CI GATE REQUIREMENTS — YOUR PLAN MUST ENABLE THESE
+The generator output is validated by scripts/validate-cypress-tests.js. Ensure every scenario:
+1. Maps 1:1 to an AC number — prefix each with AC-1:, AC-2:, etc.
+2. Specifies cy.login() or cy.session() for any scenario accessing authenticated routes
+3. Uses cy.safeVisit() (never cy.visit()) in step descriptions
+4. Specifies cy.intercept() + cy.wait('@alias') for network assertion scenarios
+5. Documents any fixture names needed so @requiredFixtures metadata can be generated
+6. Marks non-UI ACs (email verification, DB, filesystem) as: **NOT AUTOMATABLE** — reason: <reason>
+7. Includes at least one .should() assertion hint per scenario
+8. Assigns a test area abbreviation for file naming (auth, checkout, inventory, cart, etc.)
+
+# PLAN SECTION HINTS
+Each scenario MUST provide:
+${hints || '  - [data-test] selector references\n  - Relative URL path\n  - AC reference\n  - cy.safeVisit() navigation steps'}
+
+# OUTPUT FORMAT — MANDATORY
+Return ONLY valid JSON — no markdown, no code fences, no explanation:
+{
+  "framework": "cypress",
+  "testPlan": [
+    {
+      "id": "TC-01",
+      "acRef": "AC-1",
+      "title": "Descriptive test title",
+      "type": "happy-path|negative|edge-case",
+      "preconditions": "cy.login(); cy.safeVisit('/inventory.html')",
+      "steps": ["cy.safeVisit('/')", "cy.get('[data-test=username]').type(user)", "cy.get('[data-test=login-button]').click()"],
+      "expectedOutcome": "URL includes /inventory.html and Products heading visible",
+      "assertionHint": "cy.url().should('include', '/inventory.html')",
+      "fixtures": [],
+      "area": "auth",
+      "automatable": true
+    }
+  ]
+}`;
+}
+
+// ---------------------------------------------------------------------------
+// Runtime drift validation — FAIL if planner output is framework-agnostic
+// ---------------------------------------------------------------------------
+
+function validatePlannerOutput(framework, plan, rawText) {
+  const opposite = framework === 'cypress' ? 'playwright' : 'cypress';
+
+  // Rule 1: plan must declare correct framework (when field present)
+  if (plan.framework && plan.framework !== framework) {
+    throw new Error(
+      `PLANNER_DRIFT: plan declares framework="${plan.framework}" but orchestrator is running "${framework}". ` +
+      'System prompts may have drifted — check buildPlaywrightPlannerPrompt and buildCypressPlannerPrompt.'
+    );
+  }
+
+  // Rule 2: detect opposite-framework vocabulary in the raw response text
+  const PLAYWRIGHT_MARKERS = ['cy.visit(', 'cy.get(', 'cy.should(', '.should(', 'describe(', 'it('];
+  const CYPRESS_MARKERS    = ['page.goto', 'page.locator', 'page.getByRole', 'expect(', 'test(', 'async ({ page })'];
+
+  const markers   = framework === 'playwright' ? PLAYWRIGHT_MARKERS : CYPRESS_MARKERS;
+  const found     = markers.filter(m => rawText.includes(m));
+  if (found.length > 0) {
+    throw new Error(
+      `PLANNER_DRIFT: Planner output for "${framework}" contains ${opposite}-specific markers: [${found.join(', ')}]. ` +
+      'Generated plan is framework-agnostic. Check system prompt isolation.'
+    );
+  }
+
+  // Rule 3: verify at least one scenario has an AC reference
+  const hasAcRef = plan.testPlan.some(tc => tc.acRef || /AC-\d+/i.test(tc.title + (tc.preconditions || '') + (tc.steps || []).join(' ')));
+  if (!hasAcRef) {
+    warn('PLANNER', 'PLANNER_DRIFT WARNING: No AC references detected in planner output. Traceability will fail CI.');
+  }
+
+  info('PLANNER', `Drift validation passed — framework=${framework}, framework field=${plan.framework || '(not set by LLM)'}`);
+}
 
 // ---------------------------------------------------------------------------
 // Step 5 — LLM Generator
@@ -359,6 +513,18 @@ Always return valid JSON.`;
 
 async function runGenerator(framework, issueKey, summary, description, testPlan) {
   info('GENERATOR', `Generating test files for ${framework}`);
+
+  // Load framework-specific CI rules (same source as planner — single source of truth)
+  const ciRules   = loadCiRules(framework);
+  const sysPrompt = framework === 'cypress'
+    ? buildCypressGeneratorPrompt(ciRules)
+    : buildPlaywrightGeneratorPrompt(ciRules);
+
+  // Log pipeline config for full observability
+  info('GENERATOR', `Framework: ${framework} | System prompt: ${framework === 'cypress' ? 'CYPRESS_GENERATOR' : 'PLAYWRIGHT_GENERATOR'}`);
+  info('GENERATOR', `CI gates: ${(ciRules.generator?.ciGates || []).join(', ') || 'none'}`);
+  info('GENERATOR', `Mandatory rules (${(ciRules.generator?.mandatoryRules || []).length}): ${(ciRules.generator?.mandatoryRules || []).slice(0, 3).join(' | ')}...`);
+  info('GENERATOR', `Forbidden patterns: ${(ciRules.generator?.forbiddenPatterns || []).join(', ') || 'none'}`);
 
   const testFiles = [];
 
@@ -374,11 +540,7 @@ async function runGenerator(framework, issueKey, summary, description, testPlan)
 
     info('GENERATOR', `Generating: ${fileName}`);
 
-    const sysPrompt = framework === 'cypress'
-      ? CYPRESS_GENERATOR_SYSTEM_PROMPT
-      : PLAYWRIGHT_GENERATOR_SYSTEM_PROMPT;
-
-    const userPrompt = buildGeneratorPrompt(framework, issueKey, summary, description, scenario);
+    const userPrompt = buildGeneratorPrompt(framework, issueKey, summary, description, scenario, ciRules);
     const code = await withRetry('GENERATOR', () => callLLM(sysPrompt, userPrompt, 'GENERATOR'));
     const extracted = extractCode(code) || code;
 
@@ -426,54 +588,199 @@ function buildFilePath(framework, issueKey, scenario, fileName) {
   return path.join('qa-framework', 'frameworks', 'playwright', 'tests', storySlug, area, fileName);
 }
 
-function buildGeneratorPrompt(framework, issueKey, summary, description, scenario) {
-  const extras = framework === 'cypress' ? `
-CYPRESS REQUIREMENTS (enforced by CI):
-- Must include // @requiredFixtures: [] comment if using cy.fixture()
-- Use cy.session() for login caching
-- Prefer [data-test] or [data-cy] selectors
-- All assertions via cy.should()` : `
-PLAYWRIGHT REQUIREMENTS (enforced by CI):
-- Must include // Jira: ${issueKey} header at top of file
-- Must include at least one console.log() call
-- Never hardcode credentials in .fill() — use process.env.SAUCE_USERNAME ?? 'standard_user'
-- All assertions via expect()
-- Include [STEP]/[NAV]/[ASSERT] log annotations`;
+function buildGeneratorPrompt(framework, issueKey, summary, description, scenario, ciRules) {
+  const rules        = ciRules?.generator || {};
+  const mandatory    = (rules.mandatoryRules    || []).map((r, i) => `  ${i + 1}. ${r}`).join('\n');
+  const forbidden    = (rules.forbiddenPatterns  || []).map(p => `  - ${p}`).join('\n');
+  const required     = (rules.requiredPatterns   || []).map(p => `  - ${p}`).join('\n');
+  const ciGates      = (rules.ciGates            || []).join(', ') || 'none';
 
-  return `Generate a complete, runnable test file for the following scenario.
+  return `Generate a complete, production-ready test file for the following scenario.
+This file will be validated by: ${ciGates}. It MUST pass CI or the pipeline fails.
 
 Jira Issue:   ${issueKey}
+Framework:    ${framework.toUpperCase()}
 Summary:      ${summary}
 Scenario ID:  ${scenario.id}
+AC Ref:       ${scenario.acRef || 'see description'}
 Scenario:     ${scenario.title}
 Type:         ${scenario.type}
 Preconditions: ${scenario.preconditions}
 Steps:
 ${scenario.steps.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}
 Expected:     ${scenario.expectedOutcome}
-${extras}
 
-Return ONLY the complete TypeScript source code. No explanations.`;
+# MANDATORY RULES — CI WILL REJECT FILES THAT VIOLATE THESE
+${mandatory || '  (no rules loaded — check config/ci-rules/)'}
+
+# FORBIDDEN PATTERNS — CI REJECTS FILES CONTAINING THESE
+${forbidden || '  (none)'}
+
+# REQUIRED PATTERNS — FILE MUST CONTAIN THESE
+${required || '  (none)'}
+
+Return ONLY the complete TypeScript source code. No explanations, no code fences.`;
 }
 
-const PLAYWRIGHT_GENERATOR_SYSTEM_PROMPT = `You are an expert Playwright TypeScript test generator.
-Generate production-ready spec files using @playwright/test.
-Every file MUST:
-- Start with: // Jira: <issue-key> header
-- Use import { test, expect } from '@playwright/test';
-- Include console.log() calls with [STEP], [NAV], [ASSERT] prefixes
-- Read credentials from process.env (never hardcode)
-- Use expect() for all assertions (never just navigate)
-Return ONLY the TypeScript source code.`;
+// ---------------------------------------------------------------------------
+// Generator system prompts — comprehensive, framework-specific
+// ---------------------------------------------------------------------------
 
-const CYPRESS_GENERATOR_SYSTEM_PROMPT = `You are an expert Cypress TypeScript test generator.
-Generate production-ready .cy.ts files.
-Every file MUST:
-- Start with // Jira: <issue-key> header
-- Use cy.should() for assertions
-- Include // @requiredFixtures: [] if using fixtures
-- Prefer [data-test] selectors
-Return ONLY the TypeScript source code.`;
+function buildPlaywrightGeneratorPrompt(ciRules) {
+  const rules     = ciRules?.generator || {};
+  const pomDir    = rules.pomRules?.pageObjectDir || 'qa-framework/frameworks/playwright/pages/';
+  const stubPath  = rules.notImplementedStubPath  || 'qa-framework/notimplemented/';
+  const stubTmpl  = rules.stubTemplate            || 'qa-framework/notimplemented/_TEMPLATE.spec.ts';
+  return `You are an expert PLAYWRIGHT TypeScript test generator. You produce production-ready .spec.ts files
+that are validated by scripts/validate-playwright-tests.js before any browser is launched.
+
+# FRAMEWORK: PLAYWRIGHT — NEVER generate Cypress syntax
+You MUST use: test(), expect(), async/await, @playwright/test imports.
+You MUST NOT use: describe(), it(), cy.*, .should() — these are Cypress and will cause parse errors.
+
+# CI GATE — FILES ARE REJECTED IF THEY VIOLATE THESE RULES
+1. File MUST start with: // Jira: <issue-key>
+2. File MUST import test and expect from '@playwright/test'
+3. File MUST import at least one Page Object class from ${pomDir}
+4. All browser ACTIONS (click, fill, type, hover, check) MUST go through POM methods in the spec — never raw page.locator() for actions
+5. Every test() block MUST contain at least one expect() assertion — zero-assertion tests fail CI
+6. Never use page.goto('https://...') — use relative paths e.g. page.goto('/') — baseURL resolves the host from playwright.config.ts
+7. Never hardcode credential strings in .fill() — use: process.env.SAUCE_USERNAME ?? 'standard_user'
+8. Never use test.skip() or test.fixme() without: // @skip-reason: <explanation>
+9. File MUST contain at least one console.log() call
+10. console.log() calls MUST use [STEP], [NAV], or [ASSERT] prefix for pipeline observability
+
+# POM RULES — MANDATORY
+- Import from ${pomDir}
+- Create or extend POM class if needed — declare it inline in the spec if not yet extracted to a file
+- Export selector constants as readonly class properties, not inline strings
+- Expose action methods (e.g. clickLogin()) and assertion methods (e.g. assertPageLoaded())
+- Spec file calls ONLY POM methods for actions — never raw locators
+
+# OBSERVABILITY — MANDATORY
+Log before each major action block   : console.log('[STEP] <description>');
+Log after every navigation           : console.log('[NAV] url=%s title=%s', page.url(), await page.title());
+Log before each expect() assertion   : console.log('[ASSERT] Expected: <expectation>, got: %s', actualValue);
+
+# CREDENTIAL RULES
+const user = process.env.SAUCE_USERNAME ?? 'standard_user';
+const pass = process.env.SAUCE_PASSWORD ?? 'secret_sauce';
+
+# NOTIMPLEMENTED STUBS
+For non-UI ACs create a stub at: ${stubPath}
+Use template: ${stubTmpl}
+Fill @category, @autoFixable, @required fields.
+
+# FILE STRUCTURE
+// Jira: <issue-key> — <story title>
+// AC-N: <AC text>
+import { test, expect } from '@playwright/test';
+import { LoginPage }    from '${pomDir}saucedemo/LoginPage';
+
+test.describe('<Scenario Group>', () => {
+  // AC-N: <AC text>
+  test('<test title>', async ({ page }) => {
+    console.log('[STEP] <action>');
+    const loginPage = new LoginPage(page);
+    await loginPage.navigate();
+    console.log('[NAV] url=%s title=%s', page.url(), await page.title());
+    await loginPage.login(user, pass);
+    const url = page.url();
+    console.log('[ASSERT] Expected /inventory, got: %s', url);
+    expect(url).toContain('/inventory');
+  });
+});
+
+Return ONLY the TypeScript source code. No markdown, no explanations, no code fences.`;
+}
+
+function buildCypressGeneratorPrompt(ciRules) {
+  const rules     = ciRules?.generator || {};
+  const fixtures  = (rules.fixtureRules?.knownFixtures || ['users.json', 'checkout-user.json', 'test.txt', 'example.json']).join(', ');
+  const stubPath  = rules.notImplementedStubPath || 'qa-framework/notimplemented/';
+  const stubTmpl  = rules.stubTemplate           || 'qa-framework/notimplemented/_TEMPLATE.cy.ts';
+  const cmds      = Object.entries(ciRules?.generator?.customCommandDocs || {
+    'cy.login()':       'Uses Cypress.env(username) ?? standard_user with safe defaults',
+    'cy.safeVisit()':   'Adds failOnStatusCode:false and logs landed URL automatically',
+    'cy.apiRequest()':  'Injects x-api-key from Cypress.env(REQRES_API_KEY)',
+    'cy.withinIframe()':'Wraps iframe interaction to avoid raw DOM access',
+  }).map(([k, v]) => `  ${k} — ${v}`).join('\n');
+  return `You are an expert CYPRESS TypeScript test generator. You produce production-ready .cy.ts files
+that are validated by scripts/validate-cypress-tests.js before any browser is launched.
+
+# FRAMEWORK: CYPRESS — NEVER generate Playwright syntax
+You MUST use: describe(), it(), cy.* commands.
+You MUST NOT use: test(), expect() as primary form, page.goto, async/await patterns — these are Playwright.
+
+# CI GATE — FILES ARE REJECTED IF THEY VIOLATE THESE RULES
+1. File MUST start with: // Jira: <issue-key>
+2. cy.visit() is FORBIDDEN — always use cy.safeVisit() (CI lint enforced)
+3. cy.request() is FORBIDDEN — always use cy.apiRequest() (CI lint enforced)
+4. Every it() block MUST contain at least one .should() / .should( / expect() assertion
+5. Never use it.skip() or xit() without: // @skip-reason: <explanation>
+6. Never hardcode credential strings in .type() — use: (Cypress.env('username') as string | undefined) ?? 'standard_user'
+7. File MUST contain at least one cy.log() call
+8. If cy.fixture() or .selectFile('cypress/fixtures/...') is used, line 3 MUST have: // @requiredFixtures: [...]
+9. cy.safeVisit() MUST use relative paths — NEVER cy.safeVisit('https://...')
+10. Iframe interactions MUST use cy.withinIframe() — never raw .its('contentDocument.body')
+
+# CUSTOM COMMANDS — USE THESE INSTEAD OF RAW COMMANDS
+${cmds}
+
+# KNOWN FIXTURES (auto-created)
+${fixtures}
+For new fixtures, create the fixture file and add to REQUIRED_FIXTURES in cypress.config.ts.
+
+# OBSERVABILITY — MANDATORY
+cy.log('STEP: <description>') before each major action block
+cy.url().then(url => cy.log('NAV: ' + url)) after every navigation
+cy.url().then(url => cy.log('ASSERT: Expected X in: ' + url)) before URL assertions
+
+# CREDENTIAL RULES
+const user = (Cypress.env('username') as string | undefined) ?? 'standard_user';
+const pass = (Cypress.env('password') as string | undefined) ?? 'secret_sauce';
+Use cy.login() instead of repeating these inline.
+
+# SESSION / AUTH PATTERN
+// Option A — custom command (preferred)
+beforeEach(() => { cy.login(); cy.safeVisit('/inventory.html'); });
+// Option B — session caching
+beforeEach(() => {
+  cy.session(['standard_user'], () => {
+    cy.safeVisit('/');
+    cy.get('[data-test="username"]').type(user);
+    cy.get('[data-test="password"]').type(pass);
+    cy.get('[data-test="login-button"]').click();
+    cy.url().should('include', '/inventory.html');
+  });
+  cy.safeVisit('/inventory.html');
+});
+
+# NOTIMPLEMENTED STUBS
+For non-UI ACs create a stub at: ${stubPath}
+Use template: ${stubTmpl}
+Fill @category, @autoFixable, @required fields.
+
+# FILE STRUCTURE
+// Jira: <issue-key> — <story title>
+// AC-N: <AC text>
+// @requiredFixtures: ["users.json"]   ← ONLY if cy.fixture() is used; omit otherwise
+
+describe('<Test Suite>', () => {
+  beforeEach(() => { cy.login(); cy.safeVisit('/'); });
+
+  // AC-N: <AC text>
+  it('<test title>', () => {
+    cy.log('STEP: <action>');
+    cy.safeVisit('/inventory.html');
+    cy.url().then(url => cy.log('NAV: ' + url));
+    cy.url().then(url => cy.log('ASSERT: Expected /inventory in: ' + url));
+    cy.url().should('include', '/inventory.html');
+  });
+});
+
+Return ONLY the TypeScript source code. No markdown, no explanations, no code fences.`;
+}
 
 // ---------------------------------------------------------------------------
 // Step 6 — Execute Tests

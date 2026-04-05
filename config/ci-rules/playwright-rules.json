@@ -1,0 +1,90 @@
+{
+  "framework": "playwright",
+  "version": "1.0.0",
+  "planner": {
+    "testStructure": ["test()", "expect()", "async/await"],
+    "pomFirst": true,
+    "noRawSelectors": true,
+    "navigationPattern": "relative-paths-only",
+    "assertionStrategy": "strict-expect",
+    "outputStructure": "AC → Scenario → Steps (Playwright-aligned)",
+    "requiredSectionHints": [
+      "Page Object class to use (from qa-framework/frameworks/playwright/pages/)",
+      "Relative URL path for precondition (e.g. /)",
+      "AC number reference (e.g. AC-1:)",
+      "Step-by-step actions using POM method names"
+    ],
+    "forbiddenInPlan": [
+      "cy.visit",
+      "cy.get",
+      "cy.should",
+      "describe(",
+      "it(",
+      "https://"
+    ]
+  },
+  "generator": {
+    "mandatoryRules": [
+      "File MUST start with: // Jira: <issue-key>",
+      "File MUST import test and expect from @playwright/test",
+      "File MUST import at least one POM class from qa-framework/frameworks/playwright/pages/",
+      "All browser actions (click, fill, type, hover, check) MUST go through POM methods — no raw page.locator() or page.getByRole() for actions in spec file",
+      "Every test() block MUST contain at least one expect() assertion",
+      "No page.goto('https://...') — use relative paths and let baseURL from playwright.config.ts resolve the host",
+      "No hardcoded credential strings in .fill() — use process.env.SAUCE_USERNAME ?? 'standard_user'",
+      "No test.skip() or test.fixme() without a // @skip-reason: <explanation> comment",
+      "File MUST contain at least one console.log() call",
+      "console.log() calls MUST use [STEP], [NAV], or [ASSERT] prefixes for traceability",
+      "Each test() MUST have an AC traceability comment above it (e.g. // AC-1: ...)",
+      "Non-UI ACs MUST produce a notimplemented stub — never silently skip"
+    ],
+    "forbiddenPatterns": [
+      "page.goto('https://",
+      "page.goto(\"https://",
+      "page.locator(",
+      "page.getByRole(",
+      "page.getByLabel(",
+      "page.getByText(",
+      ".fill('standard_user')",
+      ".fill('secret_sauce')",
+      "test.skip(",
+      "test.fixme("
+    ],
+    "requiredPatterns": [
+      "// Jira:",
+      "console.log(",
+      "expect(",
+      "from '@playwright/test'"
+    ],
+    "pomRules": {
+      "pageObjectDir": "qa-framework/frameworks/playwright/pages/",
+      "noInlineSelectors": true,
+      "exportConstantSelectorsAsReadonly": true,
+      "exposeActionMethods": true,
+      "exposeAssertionMethods": true
+    },
+    "observabilityRules": {
+      "logBeforeEachActionBlock": "[STEP] prefix",
+      "logAfterNavigation": "[NAV] url=%s title=%s",
+      "logBeforeAssertions": "[ASSERT] expected vs actual",
+      "useTestInfoAttachForUnexpectedState": true
+    },
+    "credentialRules": {
+      "mustUseProcessEnv": true,
+      "defaultFallback": "process.env.SAUCE_USERNAME ?? 'standard_user'",
+      "passwordFallback": "process.env.SAUCE_PASSWORD ?? 'secret_sauce'"
+    },
+    "notImplementedStubPath": "qa-framework/notimplemented/{issue-key-lower}-ac-{n}.notimplemented.spec.ts",
+    "stubTemplate": "qa-framework/notimplemented/_TEMPLATE.spec.ts",
+    "ciGates": ["validate-playwright-tests.js"],
+    "ciGateRejectionReasons": [
+      "No // Jira: <issue-key> header",
+      "No console.log() call",
+      "Hardcoded credential string in .fill()",
+      "Raw page.locator() / page.getByRole() action outside POM",
+      "test() block with zero expect() calls",
+      "page.goto('https://...') hardcoded absolute URL",
+      "test.skip() or test.fixme() without @skip-reason comment"
+    ]
+  }
+}
