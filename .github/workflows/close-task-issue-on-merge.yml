@@ -39,15 +39,15 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
           # Find the open automation-task issue for this Jira key.
-          # --search uses GitHub's search API (not subject to indexing lag).
+          # label: filter is embedded in --search — combining --label with --search
+          # causes gh to silently fail and return empty results.
           TASK_ISSUE=$(gh issue list \
             --repo "${{ github.repository }}" \
             --state open \
-            --label "automated-qa" \
-            --search "$ISSUE_KEY in:title" \
+            --search "label:automated-qa $ISSUE_KEY in:title" \
             --json number,title \
             --jq ".[] | select(.title | test(\"$ISSUE_KEY\")) | .number" \
-            2>/dev/null | head -1 || echo "")
+            | head -1 || echo "")
 
           if [[ -z "$TASK_ISSUE" ]]; then
             echo "No open automation task issue found for $ISSUE_KEY — already closed or was never created."
