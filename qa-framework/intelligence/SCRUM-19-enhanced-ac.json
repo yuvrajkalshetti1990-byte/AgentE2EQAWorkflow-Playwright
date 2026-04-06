@@ -1,0 +1,49 @@
+{
+  "storyKey": "SCRUM-19",
+  "enrichedAt": "2026-04-05T12:43:37.416Z",
+  "framework": "cypress",
+  "overallCanAutomate": true,
+  "pipelineAction": "proceed-with-warnings",
+  "originalAcs": [
+    "Phase 1 — Foundation & Test Structure | Site: SauceDemo\n\nAs a QA learner, I want to automate a failed login attempt using a locked-out user so that I can verify the exact error message and confirm the URL does not change.\n\n## Acceptance Criteria\n\nAC1: A second it block is added to login.cy.ts for the negative login scenario.\n\nAC2: Login is attempted using the username locked_out_user with any password input.\n\nAC3: A cy.url().should('not.include', 'inventory') assertion confirms the URL has not changed after the failed login.\n\nAC4: The error message container is queried and a .then(($el) => { ... }) callback is used with an explicit expect($el.text()).to.equal('Epic sadface: Sorry, this user has been locked out.') assertion.\n\nAC5: Test passes in the Cypress Test Runner.\n\n## Learning Goal\nLearn how to test failure states and use explicit BDD assertions.\n\n## References\n- Site: https://www.saucedemo.com/"
+  ],
+  "enriched": [
+    {
+      "acNumber": 1,
+      "originalText": "Phase 1 — Foundation & Test Structure | Site: SauceDemo\n\nAs a QA learner, I want to automate a failed login attempt using a locked-out user so that I can verify the exact error message and confirm the URL does not change.\n\n## Acceptance Criteria\n\nAC1: A second it block is added to login.cy.ts for the negative login scenario.\n\nAC2: Login is attempted using the username locked_out_user with any password input.\n\nAC3: A cy.url().should('not.include', 'inventory') assertion confirms the URL has not changed after the failed login.\n\nAC4: The error message container is queried and a .then(($el) => { ... }) callback is used with an explicit expect($el.text()).to.equal('Epic sadface: Sorry, this user has been locked out.') assertion.\n\nAC5: Test passes in the Cypress Test Runner.\n\n## Learning Goal\nLearn how to test failure states and use explicit BDD assertions.\n\n## References\n- Site: https://www.saucedemo.com/",
+      "verdict": "IMPROVE",
+      "score": 3.8,
+      "automatable": true,
+      "enhancedText": "Given the user is on the relevant page with valid preconditions\nWhen the user performs: \"Phase 1 — Foundation & Test Structure | Site: SauceDemo\n\nAs a QA learner, I want\"\nThen an appropriate error message is displayed",
+      "expectedOutcomes": [
+        "An error or validation message is displayed",
+        "A success or confirmation state is presented"
+      ],
+      "validationConditions": [
+        "Password must not be visible in plain text"
+      ],
+      "assertionHints": [],
+      "edgeCases": [
+        {
+          "kind": "empty-input",
+          "description": "Submit with all required fields empty",
+          "testInput": "(all blank)",
+          "expectedOutcome": "Validation error shown; form not submitted"
+        },
+        {
+          "kind": "invalid-input",
+          "description": "Enter credentials that do not match any record",
+          "testInput": "invalid_user / wrong_password",
+          "expectedOutcome": "Error message displayed; remain on current page"
+        },
+        {
+          "kind": "special-characters",
+          "description": "Enter XSS/SQLi payloads and special chars",
+          "testInput": "<script>alert(1)</script>, ' OR 1=1 --",
+          "expectedOutcome": "Characters safely escaped; no script execution; no crash"
+        }
+      ],
+      "suggestedTestTitle": "AC-1: phase 1 foundation test structure site saucedemo as a qa lea"
+    }
+  ]
+}
