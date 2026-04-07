@@ -1,6 +1,6 @@
 {
   "storyKey": "SCRUM-18",
-  "enrichedAt": "2026-04-07T06:04:31.529Z",
+  "enrichedAt": "2026-04-07T06:46:30.020Z",
   "framework": "cypress",
   "overallCanAutomate": true,
   "pipelineAction": "proceed-with-warnings",
