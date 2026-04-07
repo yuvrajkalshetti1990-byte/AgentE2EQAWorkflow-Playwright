@@ -46,19 +46,15 @@ jobs:
           # Use REST API directly to find the open automation task issue.
           # gh issue list --search with --label combined produces silent empty results
           # due to a known gh CLI bug. The REST API is reliable.
-          TASK_ISSUE=$(curl -s \
+          curl -s \
             -H "Authorization: token $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ github.repository }}/issues?state=open&labels=automated-qa&per_page=100" \
-            | python3 -c "
-import json, sys, re
-items = json.load(sys.stdin)
-key = '$ISSUE_KEY'
-for i in items:
-    if 'pull_request' not in i and re.search(re.escape(key), i['title']):
-        print(i['number'])
-        break
-" 2>/dev/null || echo "")
+            > /tmp/open_issues.json
+
+          TASK_ISSUE=$(jq -r --arg key "$ISSUE_KEY" \
+            '[.[] | select(.pull_request == null) | select(.title | test($key))] | first | .number // empty' \
+            /tmp/open_issues.json 2>/dev/null || echo "")
 
           if [[ -z "$TASK_ISSUE" ]]; then
             echo "No open automation task issue found for $ISSUE_KEY — already closed or was never created."
@@ -71,8 +67,9 @@ for i in items:
             -X PATCH \
             -H "Authorization: token $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
             "https://api.github.com/repos/${{ github.repository }}/issues/${TASK_ISSUE}" \
-            -d "{\"state\":\"closed\",\"state_reason\":\"completed\"}")
+            -d '{"state":"closed","state_reason":"completed"}')
 
           if [[ "$CLOSE_HTTP" == "200" ]]; then
             echo "::notice::Closed GitHub issue #${TASK_ISSUE} after PR #${PR_NUMBER} merged (${ISSUE_KEY})"
