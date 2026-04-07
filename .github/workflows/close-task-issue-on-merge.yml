@@ -5,10 +5,15 @@ name: Close Task Issue on PR Merge
 # Closes the GitHub automation-task issue that was created by jira-ready-for-qa.yml
 # for the same Jira story (identified by issue key in the branch name).
 #
+# Uses pull_request_target (not pull_request) so that GitHub resolves the workflow
+# file from the BASE branch (dev) rather than the HEAD branch (auto/test-*).
+# pull_request runs workflows from the HEAD branch — since auto/test-* branches
+# never contain this file, the workflow would silently never fire.
+#
 # This is intentionally a standalone workflow so no existing pipeline logic is changed.
 
 on:
-  pull_request:
+  pull_request_target:
     types: [closed]
     branches: [dev]
 
@@ -38,16 +43,22 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
-          # Find the open automation-task issue for this Jira key.
-          # label: filter is embedded in --search — combining --label with --search
-          # causes gh to silently fail and return empty results.
-          TASK_ISSUE=$(gh issue list \
-            --repo "${{ github.repository }}" \
-            --state open \
-            --search "label:automated-qa $ISSUE_KEY in:title" \
-            --json number,title \
-            --jq ".[] | select(.title | test(\"$ISSUE_KEY\")) | .number" \
-            | head -1 || echo "")
+          # Use REST API directly to find the open automation task issue.
+          # gh issue list --search with --label combined produces silent empty results
+          # due to a known gh CLI bug. The REST API is reliable.
+          TASK_ISSUE=$(curl -s \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues?state=open&labels=automated-qa&per_page=100" \
+            | python3 -c "
+import json, sys, re
+items = json.load(sys.stdin)
+key = '$ISSUE_KEY'
+for i in items:
+    if 'pull_request' not in i and re.search(re.escape(key), i['title']):
+        print(i['number'])
+        break
+" 2>/dev/null || echo "")
 
           if [[ -z "$TASK_ISSUE" ]]; then
             echo "No open automation task issue found for $ISSUE_KEY — already closed or was never created."
@@ -56,9 +67,17 @@ jobs:
 
           echo "Found issue #$TASK_ISSUE for $ISSUE_KEY — closing after PR #$PR_NUMBER merged."
 
-          gh issue close "$TASK_ISSUE" \
-            --repo "${{ github.repository }}" \
-            --comment "Closed automatically — PR #${PR_NUMBER} merged into dev. Jira story: ${ISSUE_KEY}." \
-            2>/dev/null
+          CLOSE_HTTP=$(curl -s -o /tmp/close_resp.json -w "%{http_code}" \
+            -X PATCH \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${TASK_ISSUE}" \
+            -d "{\"state\":\"closed\",\"state_reason\":\"completed\"}")
 
-          echo "::notice::Closed GitHub issue #${TASK_ISSUE} after PR #${PR_NUMBER} merged (${ISSUE_KEY})"
+          if [[ "$CLOSE_HTTP" == "200" ]]; then
+            echo "::notice::Closed GitHub issue #${TASK_ISSUE} after PR #${PR_NUMBER} merged (${ISSUE_KEY})"
+          else
+            echo "::error::Failed to close issue #${TASK_ISSUE} — HTTP ${CLOSE_HTTP}"
+            cat /tmp/close_resp.json || true
+            exit 1
+          fi
