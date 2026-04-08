@@ -35,12 +35,15 @@ on:
 
 env:
   ISSUE_KEY: ${{ github.event.client_payload.issue_key || inputs.issue_key }}
-  ATLASSIAN_CLOUD_ID: c2269322-6897-4ede-8e92-04b6edd6edf6
-  ATLASSIAN_BASE_URL: https://yuvrajkalshetti1990.atlassian.net
-  ATLASSIAN_EMAIL: yuvrajkalshetti1990@gmail.com
-  # AC_GATE_STRICT: set to 'true' as a GitHub repository variable (Settings > Variables > Actions)
-  # to fail the pipeline when OpenAI is unavailable (prevents REWRITE-level ACs slipping through).
-  # Default: 'false' so repositories without the variable set are unaffected.
+  ATLASSIAN_CLOUD_ID: ${{ vars.ATLASSIAN_CLOUD_ID }}
+  ATLASSIAN_BASE_URL: ${{ vars.ATLASSIAN_BASE_URL }}
+  ATLASSIAN_EMAIL:    ${{ vars.ATLASSIAN_EMAIL }}
+  JIRA_PROJECT_FILTER: 'SCRUM'
+  # Transition IDs for SCRUM project (yuvrajkalshetti1990.atlassian.net):
+  #   In Progress  = 10001
+  #   In QA        = 10003
+  #   Done         = 10037
+  #   Ready for QA = 10004
   AC_GATE_STRICT: 'false'
 
 jobs:
@@ -56,6 +59,15 @@ jobs:
       actions: write
 
     steps:
+      - name: Filter — only process SCRUM project tickets
+        run: |
+          PROJECT=$(echo "$ISSUE_KEY" | cut -d'-' -f1)
+          if [[ "$PROJECT" != "$JIRA_PROJECT_FILTER" ]]; then
+            echo "::notice::Skipping $ISSUE_KEY — not a $JIRA_PROJECT_FILTER project ticket."
+            exit 0
+          fi
+          echo "::notice::Issue $ISSUE_KEY matches project filter $JIRA_PROJECT_FILTER — proceeding."
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -643,7 +655,16 @@ jobs:
           if git ls-remote --exit-code --heads origin "$BRANCH"; then
             echo "Branch $BRANCH already exists - checking out"
             git fetch origin "$BRANCH"
+            # Save the intelligence file (written on dev by the enrichment step) before
+            # switching branches so the Persist step can stage + commit the latest content.
+            INTEL_FILE="qa-framework/intelligence/${ISSUE_KEY}-enhanced-ac.json"
+            [[ -f "$INTEL_FILE" ]] && cp "$INTEL_FILE" /tmp/_intel_backup.json || true
             git checkout "$BRANCH"
+            if [[ -f /tmp/_intel_backup.json ]]; then
+              mkdir -p qa-framework/intelligence
+              cp /tmp/_intel_backup.json "$INTEL_FILE"
+              rm /tmp/_intel_backup.json
+            fi
           else
             git checkout -b "$BRANCH"
             git push origin "$BRANCH"

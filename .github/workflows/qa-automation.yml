@@ -44,9 +44,9 @@ on:
 # SHARED ENV
 # ════════════════════════════════════════════════════════════════════════════
 env:
-  ATLASSIAN_CLOUD_ID:  c2269322-6897-4ede-8e92-04b6edd6edf6
-  ATLASSIAN_BASE_URL:  https://yuvrajkalshetti1990.atlassian.net
-  ATLASSIAN_EMAIL:     yuvrajkalshetti1990@gmail.com
+  ATLASSIAN_CLOUD_ID:  ${{ vars.ATLASSIAN_CLOUD_ID }}
+  ATLASSIAN_BASE_URL:  ${{ vars.ATLASSIAN_BASE_URL }}
+  ATLASSIAN_EMAIL:     ${{ vars.ATLASSIAN_EMAIL }}
   NODE_VERSION:        lts/*
 
 # ════════════════════════════════════════════════════════════════════════════
