@@ -25,10 +25,48 @@ env:
   ALLOW_PARTIAL_AC: 'false'
 
 jobs:
+  # ===========================================================================
+  # GATE 2 — Human approval of agent-generated tests
+  # ---------------------------------------------------------------------------
+  # Pauses before executing tests that the Copilot coding agent wrote, so a human
+  # can read the diff on auto/test-* first.
+  #
+  # Scoped to auto/test-* branches ONLY — pushes to dev/main are ordinary human
+  # commits and run unguarded, exactly as before.
+  #
+  # Setup: Settings → Environments → New environment → `test-approval`
+  #        → Required reviewers → add the QA lead(s) → Save.
+  # ===========================================================================
+  approve_tests:
+    name: "🚦 GATE 2 — Approve generated tests"
+    if: startsWith(inputs.ref || github.head_ref || github.ref_name, 'auto/test-')
+    runs-on: ubuntu-latest
+    permissions: {}
+    environment:
+      name: test-approval
+    steps:
+      - name: Record approval
+        run: |
+          BRANCH="${{ inputs.ref || github.head_ref || github.ref_name }}"
+          echo "::notice::GATE 2 approved by ${{ github.actor }} for ${BRANCH}"
+          {
+            echo "## ✅ GATE 2 approved — generated tests cleared to run"
+            echo ""
+            echo "Approved by: @${{ github.actor }}"
+            echo "Branch: \`${BRANCH}\`"
+            echo ""
+            echo "[Review the generated tests](https://github.com/${{ github.repository }}/tree/${BRANCH}/qa-framework/frameworks/cypress/tests)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   test-cypress:
     name: Cypress E2E Tests
     timeout-minutes: 60
     runs-on: ubuntu-latest
+    needs: [approve_tests]
+    # approve_tests is SKIPPED on dev/main pushes (not an auto/test-* branch).
+    # A skipped dependency would normally skip this job too, so accept both
+    # "success" and "skipped" — and block only on an explicit reviewer rejection.
+    if: ${{ !cancelled() && needs.approve_tests.result != 'failure' }}
     steps:
     - uses: actions/checkout@v4
       with:

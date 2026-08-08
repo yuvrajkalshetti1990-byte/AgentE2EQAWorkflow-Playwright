@@ -47,16 +47,28 @@ env:
   AC_GATE_STRICT: 'false'
 
 jobs:
-  generate-tests:
-    name: Auto-generate tests for ${{ github.event.client_payload.issue_key || inputs.issue_key }}
+  # ===========================================================================
+  # AGENT 1 — AC Reviewer
+  # Scores the acceptance criteria and posts the verdict to Jira.
+  # Produces NO side effects on the repository. Ends at GATE 1.
+  # ===========================================================================
+  review_acs:
+    name: "Agent 1 — AC Reviewer (${{ github.event.client_payload.issue_key || inputs.issue_key }})"
     runs-on: ubuntu-latest
     if: github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch'
 
+    # Read-only on the repo — this agent only reads state and talks to Jira/OpenAI.
     permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      actions: write
+      contents: read
+      issues: read
+
+    # Handed across GATE 1 to the test-generation job.
+    outputs:
+      FRAMEWORK:     ${{ steps.jira.outputs.FRAMEWORK }}
+      ISSUE_SUMMARY: ${{ steps.jira.outputs.ISSUE_SUMMARY }}
+      ISSUE_STATUS:  ${{ steps.jira.outputs.ISSUE_STATUS }}
+      VERDICT:       ${{ steps.ac_review.outputs.VERDICT }}
+      SCORE:         ${{ steps.ac_review.outputs.SCORE }}
 
     steps:
       - name: Filter — only process SCRUM project tickets
@@ -537,6 +549,37 @@ jobs:
             -d "$BODY"
           echo "AC review comment posted to $ISSUE_KEY"
 
+      # The approval briefing MUST be written before GATE 1 pauses the run.
+      # A reviewer clicking "Approve" in the Actions UI reads this summary to make
+      # the call — without it the gate is a rubber stamp, not a decision point.
+      - name: "GATE 1 briefing — write AC review to run summary"
+        run: |
+          {
+            echo "## 🚦 GATE 1 — Approval required: AC review"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Jira issue | [\`${ISSUE_KEY}\`](${ATLASSIAN_BASE_URL}/browse/${ISSUE_KEY}) |"
+            echo "| Summary | ${{ steps.jira.outputs.ISSUE_SUMMARY }} |"
+            echo "| Framework | ${{ steps.jira.outputs.FRAMEWORK }} |"
+            echo "| AC score | ${{ steps.ac_review.outputs.SCORE }} / 5.0 |"
+            echo "| AC verdict | **${{ steps.ac_review.outputs.VERDICT }}** |"
+            echo ""
+            echo "### Assessment"
+            echo "${{ steps.ac_review.outputs.SUMMARY }}"
+            echo ""
+            echo "### Issues raised"
+            echo "${{ steps.ac_review.outputs.ISSUES }}" | tr '|' '\n'
+            echo ""
+            echo "### Suggestions"
+            echo "${{ steps.ac_review.outputs.SUGGESTIONS }}" | tr '|' '\n'
+            echo ""
+            echo "---"
+            echo "**Approving** creates the feature branch, enriches the ACs, and hands the"
+            echo "story to the Copilot coding agent to write tests."
+            echo "**Rejecting** stops the pipeline here — no branch, no issue, no tests."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Block pipeline and move to In Progress if ACs need rewrite
         if: steps.ac_review.outputs.VERDICT == 'REWRITE' || steps.ac_review.outputs.VERDICT == 'IMPROVE'
         env:
@@ -553,11 +596,67 @@ jobs:
           echo "Story moved back to In Progress — ACs have verdict ${{ steps.ac_review.outputs.VERDICT }}. Review the improved ACs in the Jira comment, update the story description, then move back to Ready for QA."
           exit 1
 
+  # ===========================================================================
+  # GATE 1 — Human approval of the AC review
+  # ---------------------------------------------------------------------------
+  # This job does no work. Its only purpose is to reference the `ac-approval`
+  # environment, whose "Required reviewers" protection rule pauses the run until
+  # a human clicks Approve in the Actions UI.
+  #
+  # Setup: Settings → Environments → New environment → `ac-approval`
+  #        → Required reviewers → add the QA lead(s) → Save.
+  # Without that protection rule configured, this job passes straight through
+  # and the pipeline behaves exactly as it did before gates were introduced.
+  # ===========================================================================
+  approve_acs:
+    name: "🚦 GATE 1 — Approve AC review"
+    needs: review_acs
+    runs-on: ubuntu-latest
+    permissions: {}
+    environment:
+      name: ac-approval
+    steps:
+      - name: Record approval
+        run: |
+          echo "::notice::GATE 1 approved by ${{ github.actor }} — AC verdict was ${{ needs.review_acs.outputs.VERDICT }}"
+          {
+            echo "## ✅ GATE 1 approved"
+            echo ""
+            echo "Approved by: @${{ github.actor }}"
+            echo "AC verdict:  ${{ needs.review_acs.outputs.VERDICT }} (score ${{ needs.review_acs.outputs.SCORE }}/5.0)"
+            echo ""
+            echo "Proceeding to AC enrichment and Copilot test generation."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ===========================================================================
+  # AGENT 2 — Test generation handoff
+  # Enriches the approved ACs, creates the branch + GitHub Issue, and assigns
+  # the Copilot coding agent. Runs only after GATE 1 is approved.
+  # ===========================================================================
+  generate_tests:
+    name: "Agent 2 — Test generation handoff"
+    needs: [review_acs, approve_acs]
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: dev
+          fetch-depth: 0
+
       - name: Enrich ACs (Test Intelligence Layer)
         id: intelligence
         env:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
-          FRAMEWORK: ${{ steps.jira.outputs.FRAMEWORK }}
+          FRAMEWORK: ${{ needs.review_acs.outputs.FRAMEWORK }}
         run: |
           unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
@@ -686,8 +785,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           BRANCH="${{ steps.branch.outputs.BRANCH }}"
-          JIRA_SUMMARY="${{ steps.jira.outputs.ISSUE_SUMMARY }}"
-          FRAMEWORK="${{ steps.jira.outputs.FRAMEWORK }}"
+          JIRA_SUMMARY="${{ needs.review_acs.outputs.ISSUE_SUMMARY }}"
+          FRAMEWORK="${{ needs.review_acs.outputs.FRAMEWORK }}"
           gh label create "automated-qa" --color "#0075ca" --description "Automated QA test generation" 2>/dev/null || true
           gh label create "framework:playwright" --color "#45ba4b" --description "Playwright tests" 2>/dev/null || true
           gh label create "framework:cypress" --color "#04c38e" --description "Cypress tests" 2>/dev/null || true
@@ -776,12 +875,12 @@ jobs:
             --add-assignee "Copilot" 2>/dev/null || true
 
       - name: Persist pipeline state to feature branch
-        if: steps.branch.outputs.BRANCH != '' && steps.ac_review.outputs.VERDICT != 'REWRITE'
+        if: steps.branch.outputs.BRANCH != '' && needs.review_acs.outputs.VERDICT != 'REWRITE'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           BRANCH="${{ steps.branch.outputs.BRANCH }}"
-          FRAMEWORK="${{ steps.jira.outputs.FRAMEWORK }}"
+          FRAMEWORK="${{ needs.review_acs.outputs.FRAMEWORK }}"
 
           # Ensure we are on the feature branch (branch step already checked it out).
           # No || true — a failed checkout must surface immediately to prevent committing state to the wrong branch.
@@ -803,9 +902,9 @@ jobs:
 
           # Write/update state file using the plain-JS CLI (no npm install needed)
           node scripts/state.js init "$ISSUE_KEY" "$FRAMEWORK" "$BRANCH"
-          node scripts/state.js set  "$ISSUE_KEY" acVerdict "${{ steps.ac_review.outputs.VERDICT }}"
+          node scripts/state.js set  "$ISSUE_KEY" acVerdict "${{ needs.review_acs.outputs.VERDICT }}"
 
-          SCORE="${{ steps.ac_review.outputs.SCORE }}"
+          SCORE="${{ needs.review_acs.outputs.SCORE }}"
           [[ -n "$SCORE" && "$SCORE" != "cached" ]] && \
             node scripts/state.js set "$ISSUE_KEY" acScore "$SCORE"
 
@@ -866,7 +965,7 @@ jobs:
         run: |
           unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
-          FRAMEWORK="${{ steps.jira.outputs.FRAMEWORK }}"
+          FRAMEWORK="${{ needs.review_acs.outputs.FRAMEWORK }}"
           COMMENT_TEXT="✅ Automation pipeline triggered [$FRAMEWORK]. Copilot is generating tests on branch \`$BRANCH\`. GitHub Issue: $GH_ISSUE_URL"
           HTTP=$(curl --noproxy '*' -s -o /dev/null -w "%{http_code}" -X POST \
             -H "Authorization: Basic $AUTH" \
@@ -881,7 +980,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BRANCH: ${{ steps.branch.outputs.BRANCH }}
-          FRAMEWORK: ${{ steps.jira.outputs.FRAMEWORK }}
+          FRAMEWORK: ${{ needs.review_acs.outputs.FRAMEWORK }}
         run: |
           # Explicitly dispatch the correct CI workflow via GitHub API.
           # GITHUB_TOKEN push suppresses push events so we trigger via workflow_dispatch instead.
@@ -923,11 +1022,11 @@ jobs:
           echo "::group::Pipeline Run Summary"
           echo "============================================================"
           echo "  Jira Issue:     ${ISSUE_KEY}"
-          echo "  Summary:        ${{ steps.jira.outputs.ISSUE_SUMMARY }}"
-          echo "  Jira Status:    ${{ steps.jira.outputs.ISSUE_STATUS }}"
-          echo "  Framework:      ${{ steps.jira.outputs.FRAMEWORK }}"
-          echo "  AC Score:       ${{ steps.ac_review.outputs.SCORE }}"
-          echo "  AC Verdict:     ${{ steps.ac_review.outputs.VERDICT }}"
+          echo "  Summary:        ${{ needs.review_acs.outputs.ISSUE_SUMMARY }}"
+          echo "  Jira Status:    ${{ needs.review_acs.outputs.ISSUE_STATUS }}"
+          echo "  Framework:      ${{ needs.review_acs.outputs.FRAMEWORK }}"
+          echo "  AC Score:       ${{ needs.review_acs.outputs.SCORE }}"
+          echo "  AC Verdict:     ${{ needs.review_acs.outputs.VERDICT }}"
           echo "  Branch:         ${{ steps.branch.outputs.BRANCH }}"
           echo "  GitHub Issue:   #${{ steps.gh_issue.outputs.ISSUE_NUMBER }} ${{ steps.gh_issue.outputs.ISSUE_URL }}"
           echo "  Run URL:        https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"

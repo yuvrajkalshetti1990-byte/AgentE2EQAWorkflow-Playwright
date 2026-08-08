@@ -345,7 +345,10 @@ check('C35', 'post-results-to-jira.yml requires has_counts==true AND failed==0 b
 
 check('C36', 'post-results-to-jira.yml PR creation also gated on has_counts + failed==0', () => {
   const src = requireFile('.github/workflows/post-results-to-jira.yml');
-  // Count how many times both guards appear — must appear in at least the Done block AND the PR block
+  // Count how many times both guards appear. Since human approval gates were added,
+  // the two occurrences are the approve_release gate `if:` (which guards the Done
+  // transition, now inside the gated promote job) and the PR creation step itself.
+  // Either way: no promotion path may exist that is not guarded by both conditions.
   const hasCountsMatches = (src.match(/has_counts.*==.*'true'/g) || []).length;
   const failedMatches    = (src.match(/failed.*==.*'0'/g) || []).length;
   if (hasCountsMatches < 2) throw new Error(
@@ -632,6 +635,56 @@ check('C63', 'preflight-env.js checks hardcoded URLs in spec files (R9)', () => 
   requirePattern(src, /playwright.config.ts.*not found|cypress.config.ts.*not found|baseURL.*missing/i,
     'preflight-env.js — framework config integrity check');
   return 'preflight-env.js scans for hardcoded URLs and validates framework config files';
+});
+
+// ---------------------------------------------------------------------------
+// Human-in-the-loop approval gates (C64–C66)
+//
+// Each gate is a job that references a protected GitHub Environment. The
+// protection rule itself lives in repo settings, not in git — these checks can
+// only verify the wiring is present in the workflow files. A gate job that is
+// no longer referenced by `needs:` is a silently-bypassed gate, which is the
+// exact failure mode these checks exist to catch.
+// ---------------------------------------------------------------------------
+
+check('C64', 'GATE 1 — ac-approval gate wired between AC review and test generation', () => {
+  const wf = requireFile('.github/workflows/jira-ready-for-qa.yml');
+  requirePattern(wf, /approve_acs:/,                    'jira-ready-for-qa.yml — approve_acs gate job');
+  requirePattern(wf, /name:\s*ac-approval/,             'jira-ready-for-qa.yml — ac-approval environment');
+  requirePattern(wf, /needs:\s*review_acs/,             'jira-ready-for-qa.yml — gate depends on AC review');
+  requirePattern(wf, /needs:\s*\[review_acs,\s*approve_acs\]/,
+    'jira-ready-for-qa.yml — generate_tests blocked on the gate');
+  return 'GATE 1 wired: review_acs → approve_acs (ac-approval) → generate_tests';
+});
+
+check('C65', 'GATE 2 — test-approval gate blocks execution of agent-generated tests', () => {
+  for (const f of ['.github/workflows/playwright.yml', '.github/workflows/cypress.yml']) {
+    const wf = requireFile(f);
+    requirePattern(wf, /approve_tests:/,                `${f} — approve_tests gate job`);
+    requirePattern(wf, /name:\s*test-approval/,         `${f} — test-approval environment`);
+    requirePattern(wf, /needs:\s*\[approve_tests\]/,    `${f} — test job blocked on the gate`);
+    // The gate must be scoped to agent branches only, so ordinary dev pushes stay unguarded.
+    requirePattern(wf, /startsWith\(inputs\.ref \|\| github\.head_ref \|\| github\.ref_name, 'auto\/test-'\)/,
+      `${f} — gate scoped to auto/test-* branches`);
+    // A skipped gate must not skip the test job.
+    requirePattern(wf, /!cancelled\(\) && needs\.approve_tests\.result != 'failure'/,
+      `${f} — skipped-gate passthrough + reject blocks`);
+  }
+  return 'GATE 2 wired in both playwright.yml and cypress.yml, scoped to auto/test-*';
+});
+
+check('C66', 'GATE 3 — release-approval gate guards Jira Done + PR creation', () => {
+  const wf = requireFile('.github/workflows/post-results-to-jira.yml');
+  requirePattern(wf, /approve_release:/,                'post-results-to-jira.yml — approve_release gate job');
+  requirePattern(wf, /name:\s*release-approval/,        'post-results-to-jira.yml — release-approval environment');
+  requirePattern(wf, /needs:\s*\[report_to_jira,\s*approve_release\]/,
+    'post-results-to-jira.yml — promote blocked on the gate');
+  // Reporting must stay ungated — results reach Jira whether or not anyone approves.
+  requirePattern(wf, /Transition Jira to Done[\s\S]*?needs\.report_to_jira\.outputs\.JIRA_EXISTS/,
+    'post-results-to-jira.yml — Done transition moved into gated promote job');
+  requirePattern(wf, /Open PR into dev[\s\S]*?needs\.report_to_jira\.outputs\.has_counts == 'true'/,
+    'post-results-to-jira.yml — PR creation moved into gated promote job');
+  return 'GATE 3 wired: report_to_jira → approve_release (release-approval) → promote';
 });
 
 // ---------------------------------------------------------------------------
