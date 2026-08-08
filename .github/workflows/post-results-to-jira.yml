@@ -43,9 +43,24 @@ env:
   JIRA_DONE_TRANSITION_ID: "52"
 
 jobs:
-  report-to-jira:
+  # ===========================================================================
+  # Reporting — always runs. Posting results to Jira is information, not a
+  # state change, so it is deliberately NOT gated.
+  # ===========================================================================
+  report_to_jira:
     name: Report results to Jira
     runs-on: ubuntu-latest
+
+    # Handed across GATE 3 to the promote job.
+    outputs:
+      ISSUE_KEY:   ${{ steps.extract.outputs.ISSUE_KEY }}
+      BRANCH:      ${{ steps.extract.outputs.BRANCH }}
+      conclusion:  ${{ steps.ctx.outputs.conclusion }}
+      failed:      ${{ steps.download.outputs.failed }}
+      passed:      ${{ steps.download.outputs.passed }}
+      total:       ${{ steps.download.outputs.total }}
+      has_counts:  ${{ steps.download.outputs.has_counts }}
+      JIRA_EXISTS: ${{ steps.verify_jira.outputs.JIRA_EXISTS }}
     # Allow both trigger paths:
     # - workflow_dispatch: fired directly by cypress.yml/playwright.yml (pipeline dispatch path)
     # - workflow_run: fired by push-triggered CI runs (Copilot commit push path)
@@ -338,17 +353,91 @@ jobs:
           echo "Will open PR:      CI=success AND failed=0 AND has_counts=true required"
           echo "::endgroup::"
 
+
+      # The approval briefing MUST be written before GATE 3 pauses the run, so the
+      # reviewer can see the test outcome before deciding to release.
+      - name: "GATE 3 briefing — write release decision to run summary"
+        if: always()
+        run: |
+          {
+            echo "## 🚦 GATE 3 — Approval required: Jira Done + PR"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Jira issue | \`${{ steps.extract.outputs.ISSUE_KEY }}\` |"
+            echo "| Branch | \`${{ steps.extract.outputs.BRANCH }}\` |"
+            echo "| CI conclusion | ${{ steps.ctx.outputs.conclusion }} |"
+            echo "| Passed | ${{ steps.download.outputs.passed }} |"
+            echo "| Failed | ${{ steps.download.outputs.failed }} |"
+            echo "| Total | ${{ steps.download.outputs.total }} |"
+            echo "| Results artifact found | ${{ steps.download.outputs.has_counts }} |"
+            echo ""
+            echo "---"
+            echo "**Approving** transitions the Jira story to Done and opens the PR into \`dev\`."
+            echo "**Rejecting** leaves the story In QA with no PR — results stay posted to Jira either way."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ===========================================================================
+  # GATE 3 — Human approval of the release action
+  # ---------------------------------------------------------------------------
+  # Only reached when the machine gates already passed: CI green, zero failures,
+  # and a results artifact actually present. A failing run never pages a reviewer.
+  #
+  # Setup: Settings → Environments → New environment → `release-approval`
+  #        → Required reviewers → add the QA lead(s) → Save.
+  # ===========================================================================
+  approve_release:
+    name: "🚦 GATE 3 — Approve Jira Done + PR"
+    needs: report_to_jira
+    if: >
+      needs.report_to_jira.outputs.conclusion == 'success' &&
+      needs.report_to_jira.outputs.failed == '0' &&
+      needs.report_to_jira.outputs.has_counts == 'true'
+    runs-on: ubuntu-latest
+    permissions: {}
+    environment:
+      name: release-approval
+    steps:
+      - name: Record approval
+        run: |
+          echo "::notice::GATE 3 approved by ${{ github.actor }} for ${{ needs.report_to_jira.outputs.ISSUE_KEY }}"
+          {
+            echo "## ✅ GATE 3 approved — releasing"
+            echo ""
+            echo "Approved by: @${{ github.actor }}"
+            echo "Issue: ${{ needs.report_to_jira.outputs.ISSUE_KEY }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ===========================================================================
+  # Promote — the only job that changes external state on success.
+  # Runs only after GATE 3 is approved.
+  # ===========================================================================
+  promote:
+    name: "Promote — Jira Done + open PR"
+    needs: [report_to_jira, approve_release]
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      # gh pr create needs a git working copy to resolve the repository context.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
       - name: Transition Jira to Done (on success)
-        # Requires BOTH: CI success AND a parsed test artifact confirming zero failures.
-        # has_counts must be 'true' — Jira will NOT be marked Done if results artifact is missing.
-        if: >
-          steps.verify_jira.outputs.JIRA_EXISTS == 'true' &&
-          steps.ctx.outputs.conclusion == 'success' &&
-          steps.download.outputs.failed == '0' &&
-          steps.download.outputs.has_counts == 'true'
+        # The machine conditions (CI success, zero failures, results artifact present)
+        # are enforced by the `if:` on the approve_release gate — this job is only
+        # reachable when all three hold AND a human approved. Only the Jira-exists
+        # guard remains step-local.
+        if: needs.report_to_jira.outputs.JIRA_EXISTS == 'true'
         env:
           ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
-          ISSUE_KEY: ${{ steps.extract.outputs.ISSUE_KEY }}
+          ISSUE_KEY: ${{ needs.report_to_jira.outputs.ISSUE_KEY }}
         run: |
           unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
           AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_TOKEN" | base64 -w 0)
@@ -375,16 +464,16 @@ jobs:
           fi
 
       - name: Open PR into dev (on success)
-        # Requires BOTH: CI success AND a parsed test artifact confirming zero failures.
-        # has_counts must be 'true' — PR will NOT be created if results artifact is missing.
+        # Re-asserted here as defence in depth. GATE 3 already enforces these, but the
+        # PR is the last irreversible step — keep the guard explicit and local.
         if: >
-          steps.ctx.outputs.conclusion == 'success' &&
-          steps.download.outputs.failed == '0' &&
-          steps.download.outputs.has_counts == 'true'
+          needs.report_to_jira.outputs.conclusion == 'success' &&
+          needs.report_to_jira.outputs.failed == '0' &&
+          needs.report_to_jira.outputs.has_counts == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BRANCH: ${{ steps.extract.outputs.BRANCH }}
-          ISSUE_KEY: ${{ steps.extract.outputs.ISSUE_KEY }}
+          BRANCH: ${{ needs.report_to_jira.outputs.BRANCH }}
+          ISSUE_KEY: ${{ needs.report_to_jira.outputs.ISSUE_KEY }}
         run: |
           # Check if a PR for this branch already exists (handles race condition
           # when both Cypress and Playwright post-results runs fire concurrently)

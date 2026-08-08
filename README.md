@@ -1,6 +1,19 @@
 # E2E Agentic QA Pipeline
 
-A **zero-human-intervention** QA automation pipeline: Jira "Ready for QA" → AC enrichment → generated tests → CI execution → test report → Jira "Done" → PR — fully automated.
+A **human-supervised agentic** QA automation pipeline: Jira "Ready for QA" → AC review → AC enrichment → generated tests → CI execution → test report → Jira "Done" → PR.
+
+Every step between agents is automated. **Every handoff between agents requires a human approval.**
+An agent may propose; only a human may let the pipeline advance to the next agent.
+
+| | |
+|---|---|
+| **Agents do** | Score ACs, enrich ACs, plan tests, write tests, heal failures |
+| **Deterministic scripts do** | Enforce quality — assertions, traceability, POM compliance, data integrity |
+| **Humans do** | Approve each agent handoff at three gates |
+
+> **Gates are enforced by GitHub Environment protection rules**, not by application code.
+> If the environments are not configured (see [Approval Gates](#human-in-the-loop-approval-gates)),
+> every gate passes straight through and the pipeline runs fully automated exactly as it did before.
 
 ---
 
@@ -8,73 +21,178 @@ A **zero-human-intervention** QA automation pipeline: Jira "Ready for QA" → AC
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  1. Jira story transitions → "Ready for QA"                                │
-│     Jira Automation Rule fires a POST to GitHub repository_dispatch        │
+│  1. Jira story transitions → "Ready for QA"                                 │
+│     Jira Automation Rule fires a POST to GitHub repository_dispatch         │
 └───────────────────────────────┬─────────────────────────────────────────────┘
-                                │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  jira-ready-for-qa.yml                                                     │
+│  jira-ready-for-qa.yml  ·  job: review_acs        AGENT 1 — AC REVIEWER      │
 │                                                                             │
-│  Step 1  │ Load pipeline state (idempotency check)                         │
-│  Step 2  │ Fetch Jira story (summary, status, labels, description)         │
-│  Step 3  │ Detect framework: "cypress" label → Cypress, else → Playwright  │
-│  Step 4  │ Review ACs via OpenAI gpt-4o-mini (score 1-5, per-dimension)    │
-│  Step 5  │ Post AC review comment to Jira (Activity tab)                   │
-│  Step 6  │ REWRITE or IMPROVE → OpenAI generates improved ACs → posted    │
-│          │   to Jira comment → story moved back to "In Progress" → STOP    │
-│          │ AUTOMATE only → pipeline continues to test generation            │
-│  Step 7  │ Enrich ACs (Test Intelligence Layer) →                          │
-│          │   builds assertionHints, edgeCases, suggestedTitles             │
-│          │   writes qa-framework/intelligence/{key}-enhanced-ac.json       │
-│  Step 8  │ Create branch auto/test-{issue-key}  (idempotent)               │
-│  Step 9  │ Create GitHub Issue with test instructions + Intelligence Note  │
-│          │   (idempotent — reuses if already created)                      │
-│  Step 10 │ Assign Copilot to that GitHub Issue                             │
-│  Step 11 │ Persist pipeline state + intelligence file to feature branch    │
-│  Step 12 │ Transition Jira → "In QA"  (resilient: 400/409 = already there)│
-│  Step 13 │ Post Jira comment: pipeline triggered + branch + GH issue URL  │
-│  Step 14 │ Dispatch cypress.yml OR playwright.yml on the feature branch    │
+│  Step 1  │ Load pipeline state (idempotency check)                          │
+│  Step 2  │ Fetch Jira story (summary, status, labels, description)          │
+│  Step 3  │ Detect framework: "cypress" label → Cypress, else → Playwright   │
+│  Step 4  │ Review ACs via OpenAI gpt-4o-mini (score 1-5, per-dimension)     │
+│  Step 5  │ Post AC review comment to Jira (Activity tab)                    │
+│  Step 6  │ REWRITE or IMPROVE → OpenAI generates improved ACs → posted      │
+│          │   to Jira comment → story moved back to "In Progress" → STOP     │
+│  Step 7  │ Write GATE 1 briefing to the run summary                         │
+│                                                                             │
+│  Read-only on the repository. No branch, no issue, no commit.               │
 └───────────────────────────────┬─────────────────────────────────────────────┘
-                                │
+                                ▼
+        ╔════════════════════════════════════════════════════════════╗
+        ║  🚦 GATE 1 — HUMAN APPROVAL   env: ac-approval             ║
+        ║                                                            ║
+        ║  Reviewer sees: AC score, verdict, issues, suggestions      ║
+        ║  Approve → enrich ACs + hand off to Copilot                ║
+        ║  Reject  → pipeline stops. No branch, no issue, no tests.  ║
+        ╚════════════════════════════════════╤═══════════════════════╝
+                                             ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  jira-ready-for-qa.yml  ·  job: generate_tests   AGENT 2 — GENERATION HANDOFF│
+│                                                                             │
+│  Step 8  │ Enrich ACs (Test Intelligence Layer) →                           │
+│          │   builds assertionHints, edgeCases, suggestedTitles              │
+│          │   writes qa-framework/intelligence/{key}-enhanced-ac.json        │
+│  Step 9  │ Create branch auto/test-{issue-key}  (idempotent)                │
+│  Step 10 │ Create GitHub Issue with test instructions + Intelligence Note   │
+│  Step 11 │ Assign Copilot to that GitHub Issue                              │
+│  Step 12 │ Persist pipeline state + intelligence file to feature branch     │
+│  Step 13 │ Transition Jira → "In QA"  (resilient: 400/409 = already there)  │
+│  Step 14 │ Post Jira comment + dispatch cypress.yml OR playwright.yml       │
+└───────────────────────────────┬─────────────────────────────────────────────┘
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  Copilot Coding Agent (GitHub Issue assigned to Copilot)                   │
+│  Copilot Coding Agent (GitHub Issue assigned to Copilot)  AGENT 3 — WRITER   │
 │                                                                             │
 │  • Reads the GitHub Issue instructions                                      │
-│  • Reads qa-framework/intelligence/{key}-enhanced-ac.json (if present)    │
-│    → uses suggestedTestTitle, assertionHints, edgeCases per AC             │
-│  • Uses @playwright-test-planner or @cypress-test-planner for test plan   │
-│  • Generates one test per AC (ACs with verdict=REWRITE → skip)            │
-│  • Non-automatable ACs → stubs in qa-framework/notimplemented/            │
-│  • Commits + pushes to auto/test-{issue-key}                               │
+│  • Reads qa-framework/intelligence/{key}-enhanced-ac.json (if present)      │
+│    → uses suggestedTestTitle, assertionHints, edgeCases per AC              │
+│  • Uses @playwright-test-planner or @cypress-test-planner for test plan     │
+│  • Generates one test per AC (ACs with verdict=REWRITE → skip)              │
+│  • Non-automatable ACs → stubs in qa-framework/notimplemented/              │
+│  • Commits + pushes to auto/test-{issue-key}                                │
 └───────────────────────────────┬─────────────────────────────────────────────┘
                                 │ push triggers CI workflow automatically
                                 ▼
+        ╔════════════════════════════════════════════════════════════╗
+        ║  🚦 GATE 2 — HUMAN APPROVAL   env: test-approval           ║
+        ║                                                            ║
+        ║  Reviewer reads the tests Copilot wrote on auto/test-*      ║
+        ║  Approve → tests execute in CI                             ║
+        ║  Reject  → no browser is ever launched                     ║
+        ║                                                            ║
+        ║  Scoped to auto/test-* only — dev/main pushes run ungated. ║
+        ╚════════════════════════════════════╤═══════════════════════╝
+                                             ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  playwright.yml  OR  cypress.yml                                           │
+│  playwright.yml  OR  cypress.yml                                            │
 │                                                                             │
 │  • npm ci + install browsers / Cypress binary                               │
-│  • TypeScript compilation check + compliance validation                    │
-│  • Count runnable specs (excludes *.notimplemented.* stubs)                │
-│  • Run tests (Playwright: results.json | Cypress: mochawesome.json)        │
-│  • Generate test execution report → qa-framework/reports/{key}-report.md  │
-│  • Upload: JSON results + HTML/video + report artifacts                    │
+│  • TypeScript compilation check + compliance validation                     │
+│  • Count runnable specs (excludes *.notimplemented.* stubs)                 │
+│  • Run tests (Playwright: results.json | Cypress: mochawesome.json)         │
+│  • Generate test execution report → qa-framework/reports/{key}-report.md    │
+│  • Upload: JSON results + HTML/video + report artifacts                     │
 │  • Always runs to completion — never exits before uploading artifacts       │
 └───────────────────────────────┬─────────────────────────────────────────────┘
-                                │ workflow_run: completed → post-results-to-jira.yml
+                                │ workflow_run: completed
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  post-results-to-jira.yml                                                  │
+│  post-results-to-jira.yml  ·  job: report_to_jira        (NEVER GATED)      │
 │                                                                             │
 │  • Download *-test-results-json artifact                                    │
-│  • Parse results.json (Playwright) OR mochawesome.json (Cypress)           │
-│  • Post result comment to Jira (passed/failed/skipped + report link)       │
-│  • If conclusion == success AND failed == 0 AND results artifact found:    │
-│      → Transition Jira → "Done"                                            │
-│      → Open PR: auto/test-{key} → dev  (idempotent — skip if PR exists)   │
+│  • Parse results.json (Playwright) OR mochawesome.json (Cypress)            │
+│  • Post result comment to Jira (passed/failed/skipped + report link)        │
+│  • Write GATE 3 briefing to the run summary                                 │
+│                                                                             │
+│  Results reach Jira whether or not anyone approves. Reporting is            │
+│  information, not a state change — it is deliberately never gated.          │
+└───────────────────────────────┬─────────────────────────────────────────────┘
+                                │ only if: CI success AND failed==0
+                                │          AND results artifact present
+                                ▼
+        ╔════════════════════════════════════════════════════════════╗
+        ║  🚦 GATE 3 — HUMAN APPROVAL   env: release-approval        ║
+        ║                                                            ║
+        ║  Reviewer sees: pass/fail counts, artifact presence         ║
+        ║  Approve → Jira "Done" + PR opened into dev                ║
+        ║  Reject  → story stays In QA, no PR                        ║
+        ║                                                            ║
+        ║  A failing run never reaches this gate — nobody is paged.  ║
+        ╚════════════════════════════════════╤═══════════════════════╝
+                                             ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  post-results-to-jira.yml  ·  job: promote                                  │
+│                                                                             │
+│  • Transition Jira → "Done"                                                 │
+│  • Open PR: auto/test-{key} → dev  (idempotent — skip if PR exists)         │
+│                                                                             │
+│  The only job in the pipeline that changes external state on success.       │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Human-in-the-Loop Approval Gates
+
+Each agent hands off to the next only after a human approves. The pipeline pauses at
+three points, and a reviewer decides whether it advances.
+
+| Gate | Environment | Pauses before | Approving means | Rejecting means |
+|------|-------------|---------------|-----------------|-----------------|
+| **GATE 1** | `ac-approval` | AC enrichment + Copilot handoff | Branch created, ACs enriched, Copilot assigned | Nothing is created — no branch, no issue, no tests |
+| **GATE 2** | `test-approval` | Executing agent-written tests | Tests run in CI | No browser is launched |
+| **GATE 3** | `release-approval` | Jira "Done" + PR creation | Story marked Done, PR opened into `dev` | Story stays In QA, no PR |
+
+### How it works
+
+Gates are **GitHub Environment protection rules** — a native platform feature, not
+application code. A job that references a protected environment pauses; GitHub notifies
+the required reviewers, who click **Approve** or **Reject** in the Actions run UI.
+
+Because the mechanism is the platform's, there is no polling loop, no webhook listener,
+and no approval state to persist. There is also nothing to bypass: a job cannot start
+until the deployment is approved.
+
+### What the reviewer sees
+
+Each gate is preceded by a **briefing** written to the run summary — approving blind
+would make the gate a rubber stamp rather than a decision point.
+
+- **GATE 1 briefing** — AC score, verdict, the issues the reviewer agent raised, and its suggestions
+- **GATE 2 briefing** — branch name and a direct link to the generated test files
+- **GATE 3 briefing** — pass/fail/total counts and whether the results artifact was actually found
+
+### Setup
+
+For each of `ac-approval`, `test-approval`, `release-approval`:
+
+1. **Settings → Environments → New environment**
+2. Name it exactly as above
+3. Tick **Required reviewers** → add the QA lead(s) → **Save**
+
+> **Until an environment has a Required reviewers rule, its gate passes straight
+> through.** The pipeline then behaves exactly as it did before gates existed —
+> fully automated. This is deliberate: the repo stays runnable by anyone who clones
+> it, and gates are opt-in per environment.
+
+### Design notes
+
+- **Reporting is never gated.** Test results reach Jira whether or not anyone approves.
+  Withholding information from the team helps nobody — only *state changes* are gated.
+- **A failing run never reaches GATE 3.** The gate's own `if:` requires CI success,
+  zero failures, and a present results artifact. Reviewers are only asked about
+  releases that are actually releasable.
+- **GATE 2 is scoped to `auto/test-*` branches.** Ordinary pushes to `dev` and `main`
+  are human commits and run unguarded, exactly as before.
+- **A skipped gate is not a failed gate.** When GATE 2 is out of scope it is *skipped*,
+  and the test job uses `!cancelled() && needs.approve_tests.result != 'failure'` so a
+  skip passes through while an explicit rejection still blocks.
+- **The AC verdict block still applies.** A `REWRITE` / `IMPROVE` verdict fails the AC
+  reviewer job outright, so GATE 1 is never reached and no reviewer is paged for a story
+  the machine already rejected. If you would rather a human overrule that verdict, remove
+  the `Block pipeline...` step and let GATE 1 be the sole decision point.
 
 ---
 
@@ -130,6 +248,20 @@ To verify: `GET /rest/api/3/issue/{key}/transitions` → look for `id` in the re
 ### 4. Copilot Coding Agent (GitHub)
 
 Ensure the repository has **GitHub Copilot Enterprise** enabled so the Copilot coding agent can accept issue assignments. The pipeline assigns Copilot to the generated GitHub Issue, which triggers it to generate tests.
+
+### 5. Approval Gate Environments
+
+Create three environments under **Settings → Environments**, each with **Required reviewers**:
+
+| Environment | Gates |
+|-------------|-------|
+| `ac-approval` | AC review → test generation |
+| `test-approval` | Generated tests → CI execution |
+| `release-approval` | CI pass → Jira Done + PR |
+
+Environment protection rules are free on public repositories, and on GitHub Pro / Team /
+Enterprise for private ones. See [Approval Gates](#human-in-the-loop-approval-gates) for
+what each gate does and what happens if you skip this step.
 
 ---
 
@@ -297,6 +429,10 @@ All run **before** `npx playwright test` / `npx cypress run` in CI — failure e
 | **Concurrency guard** | `qa-automation.yml` has a `concurrency:` group scoped to issue number — prevents parallel runs for same issue |
 | **SCRUM-16 exemption** | Learning/exploration tests under `SCRUM-16-*` are exempt from AC traceability rules |
 | **AC_GATE_STRICT** | Set repo variable `AC_GATE_STRICT=true` (Settings → Variables) to promote OpenAI API unavailability to a hard pipeline block — default `false` allows soft-fail with `IMPROVE` verdict |
+| **GATE 1 — agent isolation** | The AC reviewer job runs with `contents: read` and creates nothing. Every repository side effect lives in the post-gate `generate_tests` job, so rejecting GATE 1 leaves no residue to clean up |
+| **GATE 2 — scope** | Gated only on `auto/test-*`. Human commits to `dev`/`main` are never blocked on an approval |
+| **GATE 3 — reachability** | Gate `if:` requires CI success AND `failed == 0` AND `has_counts == true` — a failing run never pages a reviewer |
+| **Gate bypass detection** | `pipeline-audit.js` C64–C66 fail if any gate job is removed or is no longer referenced by `needs:` |
 
 ### Pipeline audit
 
@@ -306,7 +442,7 @@ Run at any time to verify all components are wired:
 node scripts/pipeline-audit.js
 ```
 
-Currently checks **41 conditions (C01–C41)**. Exits 1 if any fail.
+Currently checks **66 conditions (C01–C66)**. Exits 1 if any fail.
 
 > C31 verifies `scripts/validate-playwright-data.js` exists and has blocking exit(1).  
 > C32 verifies it runs before `npx playwright test` in `playwright.yml`.  
@@ -318,7 +454,16 @@ Currently checks **41 conditions (C01–C41)**. Exits 1 if any fail.
 > C38 verifies dual-label `FRAMEWORK_AMBIGUOUS` guard in `jira-ready-for-qa.yml` exits 1.  
 > C39 verifies `AC_GATE_STRICT` mechanism is wired in `jira-ready-for-qa.yml`.  
 > C40 verifies Jira Done transition failure fails loudly (exit 1, not just a warning).  
-> C41 verifies `lint-resilience.js` is wired in `cypress.yml` before test execution.
+> C41 verifies `lint-resilience.js` is wired in `cypress.yml` before test execution.  
+> C64 verifies GATE 1 (`ac-approval`) sits between the AC reviewer and test generation.  
+> C65 verifies GATE 2 (`test-approval`) blocks test execution in both CI workflows, is scoped to `auto/test-*`, and that a skipped gate does not skip the test job.  
+> C66 verifies GATE 3 (`release-approval`) guards the Jira Done transition and PR creation.
+
+> **Why gates are audited:** the protection rule itself lives in repo settings, not in git,
+> so the audit cannot prove a reviewer is configured. What it *can* prove is that the gate
+> job still exists and is still referenced by `needs:` — a gate job left in place but no
+> longer depended upon is a silently bypassed gate, which is exactly the regression C64–C66
+> are there to catch.
 
 ---
 
@@ -499,6 +644,70 @@ Example: `saucedemo-cy-hp-01-single-item-checkout.cy.ts`
 | CI passes but no JSON artifact | Jira gets PASSED comment, Done transition **blocked** (`has_counts==false`) — story stays In QA, no PR created |
 | No specs found in Cypress | Warning logged, workflow marked neutral, no Done transition |
 | Report generation fails | Warning logged, CI continues — report artifact skipped |
+| **GATE 1 rejected** | Pipeline stops before enrichment. No branch, no GitHub Issue, no Copilot assignment. Jira stays in its current status |
+| **GATE 2 rejected** | Tests are never executed. No results, so `post-results-to-jira.yml` has nothing to report |
+| **GATE 3 rejected** | Jira comment with results is already posted. Story stays In QA, no Done transition, no PR |
+| **Gate reviewer never responds** | Run waits until the environment's timer expires (default: no timeout — waits indefinitely), then the run is cancelled |
+| **Environment has no reviewers configured** | Gate passes through automatically — pipeline runs fully automated |
+
+---
+
+## Limitations & Next Steps
+
+Every agent handoff is human-approved; the PR into `dev` remains a further human
+checkpoint. The following are known gaps, listed so anyone evaluating or extending this
+system knows where the edges are.
+
+### Known limitations
+
+| Area | Limitation | Impact |
+|------|-----------|--------|
+| **AC scoring** | No evaluation set. The rubric runs at `temperature: 0` for reproducibility, but scoring accuracy has never been measured against human-labelled ACs. | A misscored AC either blocks a good story or admits a weak one. The gate is deliberately conservative — below 4.0 blocks — so errors fail toward extra review rather than bad tests. GATE 1 now gives a human the final say. |
+| **Jira coupling** | Status transition IDs are hardcoded in the workflows. | The pipeline breaks on any Jira project whose workflow uses different IDs. |
+| **Healer context** | The healer receives only the first 3000 characters of failure output. | Failures whose root cause appears late in a long trace may be misdiagnosed, burning both retry attempts before quarantine. |
+| **Prompt injection** | Jira summary, description, and AC text flow directly into LLM prompts with no sanitisation. | A crafted ticket could attempt to steer the AC reviewer or test generator. Blast radius is limited by the deterministic validators and now by GATE 1 and GATE 2, but the input path itself is still untrusted. |
+| **Duplicated orchestration** | The GitHub Actions path and `tools/orchestrator.js` implement the same pipeline twice. | Guards must be added in two places. `orchestrator.js` has **no approval gates** — it is the local/portable path and runs fully autonomously. |
+| **Pinned agent models** | `.github/agents/*.agent.md` pin a fixed model version. | Prompts have not been re-benchmarked against current model generations. |
+| **Single-app coverage** | Tests target SauceDemo, DemoQA, and the-internet.herokuapp.com. | Proven against stable public demo sites, not an application with real auth, real data setup, or real flakiness. |
+| **No cost controls** | LLM calls have no per-run token budget or spend ceiling. | A story with many ACs, plus healer retries, has unbounded cost. |
+| **Gate fatigue** | Three approvals per story. | At volume, reviewers rubber-stamp. The briefings mitigate this but do not solve it — see next steps. |
+
+### Next steps, in priority order
+
+1. **Build an AC evaluation set.** 30–50 hand-labelled acceptance criteria with expected
+   verdicts, run as a regression check whenever the rubric, prompt, or model changes.
+   Without it, every prompt change is unverified.
+2. **Auto-approve low-risk gates.** Let GATE 2 pass automatically when the AC score is
+   ≥ 4.5 and every validator passed, reserving human attention for the ambiguous cases.
+   Gate fatigue is the main threat to this design's usefulness.
+3. **Resolve Jira transition IDs at runtime** via `GET /rest/api/3/issue/{key}/transitions`,
+   removing the hardcoded IDs.
+4. **Collapse the duplicated orchestration** — have the workflows invoke
+   `tools/orchestrator.js` rather than reimplementing each step in YAML.
+5. **Sanitise LLM input.** Delimit and escape Jira-sourced text; add an instruction-injection
+   check before the AC reviewer call.
+6. **Add token budgets and spend telemetry** per run, with a hard ceiling that fails closed.
+7. **Widen healer context** — pass structured failure data (error type, failing assertion,
+   selector) instead of a truncated string.
+8. **Prove it against a real application** with authentication, seeded test data, and
+   genuine flakiness.
+
+### Design principles
+
+Stated explicitly so extensions do not violate them:
+
+- **LLM proposes, code disposes, human decides.** Every LLM output crosses a deterministic
+  validator, and every agent handoff crosses a human gate.
+- **Fail closed.** LLM unreachable, results artifact missing, ambiguous framework label —
+  all block. The default is stop, not proceed.
+- **Bounded autonomy.** The healer gets a fixed number of attempts and a terminal state
+  (`notimplemented/`), and only modifies files named in the failure output.
+- **Gate state changes, never information.** Test results reach Jira unconditionally.
+  Only actions that change external state require approval.
+- **Every side effect is idempotent.** Branches, issues, PRs, and Jira transitions are all
+  checked before creation. Re-running for the same story is safe.
+- **No silent skips.** Work that cannot be automated becomes a visible artifact with a
+  recorded reason, never an omission.
 
 ---
 
